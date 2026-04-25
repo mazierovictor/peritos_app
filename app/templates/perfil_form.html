@@ -44,17 +44,28 @@
     <label>Assunto
       <input type="text" name="assunto" value="{{ (perfil and perfil.assunto) or 'Apresentação e Disponibilidade para Atuação como Perito Contábil' }}" required>
     </label>
-    <label>Corpo (texto puro)
-      <textarea name="corpo_texto" rows="10" required>{{ (perfil and perfil.corpo_texto) or modelo_texto_padrao }}</textarea>
-    </label>
-    <label>Corpo (HTML)
-      <textarea name="corpo_html" rows="14" required>{{ (perfil and perfil.corpo_html) or modelo_html_padrao }}</textarea>
+    <label>Corpo (texto puro) — escreva aqui; o HTML é gerado sozinho
+      <textarea name="corpo_texto" id="corpo_texto" rows="14" required>{{ (perfil and perfil.corpo_texto) or modelo_texto_padrao }}</textarea>
     </label>
     <small class="cinza">
-      Variáveis disponíveis: <code>$cidade</code>, <code>$comarca</code>, <code>$orgao</code>, <code>$estado</code>,
+      <strong>Dicas:</strong> linha em branco = parágrafo novo. Linhas começando com <code>-</code>, <code>*</code> ou <code>•</code> viram lista.<br>
+      Variáveis: <code>$cidade</code>, <code>$comarca</code>, <code>$orgao</code>, <code>$estado</code>,
       <code>$tribunal</code>, <code>$sistema</code>, <code>$remetente</code>, <code>$email_remetente</code>.
     </small>
-    <label>Assinatura (opcional)
+
+    <details id="bloco_html_avancado">
+      <summary class="btn-link" style="cursor:pointer; padding:8px 0">▸ Editar HTML manualmente (avançado)</summary>
+      <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+        <label style="display:flex; flex-direction:row; align-items:center; gap:8px; text-transform:none; letter-spacing:0; font-size:13px; color:var(--ink-soft);">
+          <input type="checkbox" id="auto_html" checked style="margin:0">
+          Atualizar HTML automaticamente ao digitar no texto puro
+        </label>
+        <textarea name="corpo_html" id="corpo_html" rows="14" required>{{ (perfil and perfil.corpo_html) or modelo_html_padrao }}</textarea>
+        <small class="cinza">Desmarque a caixa acima se quiser editar este HTML sem ele ser sobrescrito pelo texto puro.</small>
+      </div>
+    </details>
+
+    <label>Assinatura (opcional, texto puro)
       <textarea name="assinatura" rows="3">{{ (perfil and perfil.assinatura) or '' }}</textarea>
     </label>
   </fieldset>
@@ -74,4 +85,57 @@
 
   <button type="submit" class="btn-primario">{% if perfil %}Salvar alterações{% else %}Criar perfil{% endif %}</button>
 </form>
+
+<script>
+  (function () {
+    const txtArea  = document.getElementById('corpo_texto');
+    const htmlArea = document.getElementById('corpo_html');
+    const autoChk  = document.getElementById('auto_html');
+    if (!txtArea || !htmlArea) return;
+
+    function escapar(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function textoParaHtml(texto) {
+      // Separa por linhas em branco (= parágrafos)
+      const blocos = texto.replace(/\r/g, '').split(/\n\s*\n/);
+      const out = [];
+      for (const blocoBruto of blocos) {
+        const linhas = blocoBruto.split(/\n/).map(l => l.trimEnd());
+        // remove linhas vazias do início/fim do bloco
+        while (linhas.length && !linhas[0].trim()) linhas.shift();
+        while (linhas.length && !linhas[linhas.length - 1].trim()) linhas.pop();
+        if (!linhas.length) continue;
+
+        // Lista? (todas as linhas começam com -, *, ou •)
+        const ehLista = linhas.every(l => /^\s*[-*•]\s+/.test(l));
+        if (ehLista) {
+          const items = linhas.map(l => '  <li>' + escapar(l.replace(/^\s*[-*•]\s+/, '')) + '</li>').join('\n');
+          out.push('<ul>\n' + items + '\n</ul>');
+        } else {
+          // Parágrafo: quebras simples viram <br>
+          const conteudo = linhas.map(escapar).join('<br>\n');
+          out.push('<p>' + conteudo + '</p>');
+        }
+      }
+      return out.join('\n');
+    }
+
+    function sincronizar() {
+      if (!autoChk || autoChk.checked) {
+        htmlArea.value = textoParaHtml(txtArea.value);
+      }
+    }
+
+    txtArea.addEventListener('input', sincronizar);
+    autoChk && autoChk.addEventListener('change', () => {
+      if (autoChk.checked) sincronizar();
+    });
+    {% if not perfil %}
+    // No formulário NOVO, gera o HTML inicial do texto puro pré-preenchido
+    sincronizar();
+    {% endif %}
+  })();
+</script>
 {% endblock %}
