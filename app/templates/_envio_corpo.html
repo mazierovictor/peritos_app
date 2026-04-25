@@ -60,15 +60,38 @@
       Defina-a no EasyPanel como <code>TRACKING_BASE_URL=https://peritos.mspericias.com</code> e reinicie o container.
     </div>
   {% elif envio.tracking_token %}
-    <details style="margin-top:16px">
-      <summary class="cinza" style="cursor:pointer; font-size:13px">▸ Diagnóstico de tracking</summary>
+    <details style="margin-top:16px" {% if hits_brutos %}open{% endif %}>
+      <summary class="cinza" style="cursor:pointer; font-size:13px">▸ Diagnóstico de tracking ({{ hits_brutos|length }} hit(s))</summary>
       <div style="padding:12px; background:#f8fafc; border-radius:6px; margin-top:8px; font-size:13px;">
         <div><strong>URL do pixel:</strong> <a href="{{ tracking_url }}/o/{{ envio.tracking_token }}.png" target="_blank"><code>{{ tracking_url }}/o/{{ envio.tracking_token }}.png</code></a></div>
         <div style="margin-top:6px"><strong>Message-ID:</strong> <code>{{ envio.message_id or '—' }}</code></div>
         <div style="margin-top:6px"><strong>Tracking token:</strong> <code>{{ envio.tracking_token }}</code></div>
+
+        {% if hits_brutos %}
+        <h4 style="margin:16px 0 8px">🔍 Hits brutos do pixel</h4>
+        <table class="tabela" style="font-size:12px; margin-top:0">
+          <thead><tr>
+            <th>Quando</th><th>Tipo</th><th>IP</th><th>User-Agent</th>
+          </tr></thead>
+          <tbody>
+            {% for h in hits_brutos %}
+            <tr>
+              <td style="font-variant-numeric:tabular-nums; white-space:nowrap">{{ h.aberta_em | local_dt('%d/%m %H:%M:%S') }}</td>
+              <td>
+                {% if h.tipo == 'proxy' %}<span class="status status-ok">📬 entrega</span>
+                {% else %}<span class="status">👁️ cliente</span>{% endif %}
+              </td>
+              <td><code>{{ h.ip or '—' }}</code></td>
+              <td><small style="word-break:break-all">{{ (h.user_agent or '—')[:200] }}</small></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
         <small class="cinza" style="display:block; margin-top:8px">
-          Clicar no link acima registra uma abertura manual (útil pra testar se o endpoint está respondendo).
+          Se um hit que era pra ser "entrega" foi classificado como "cliente" (ou vice-versa),
+          copie o User-Agent e me envie pra eu ajustar a regra de detecção.
         </small>
+        {% endif %}
       </div>
     </details>
   {% endif %}

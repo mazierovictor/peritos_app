@@ -15,6 +15,7 @@ Estrutura das rotas:
 """
 from __future__ import annotations
 
+import ipaddress
 import re
 import shutil
 from datetime import datetime, timezone
@@ -884,6 +885,11 @@ def _ctx_envio(envio_id: int, user: dict, request: Request) -> dict:
             (envio_id,),
         ).fetchone()
         entrega = dict(entrega) if entrega and entrega["quando"] else None
+        # Todos os hits para debug visual (proxy + cliente)
+        hits_brutos = [dict(r) for r in conn.execute(
+            "SELECT * FROM aberturas WHERE envio_id = ? ORDER BY aberta_em ASC",
+            (envio_id,),
+        )]
 
     # Polling sempre ativo enquanto status indica que pode mudar.
     # O usuário tem botão "pausar" se quiser parar.
@@ -892,6 +898,7 @@ def _ctx_envio(envio_id: int, user: dict, request: Request) -> dict:
     return {
         "request": request, "user": user,
         "envio": dict(envio), "aberturas": aberturas, "entrega": entrega,
+        "hits_brutos": hits_brutos,
         "poll_ativo": poll_ativo,
         "tracking_url": (settings.tracking_base_url or "").rstrip("/"),
     }
@@ -1199,22 +1206,61 @@ _PIXEL_PNG = bytes.fromhex(
 # todas as imagens em servidor próprio antes do destinatário abrir.
 _PROXY_UA_RE = re.compile(
     r"(GoogleImageProxy|YahooMailProxy|BingPreview|MicrosoftPreview|"
-    r"SkypeUriPreview|OutlookSafe)",
+    r"SkypeUriPreview|OutlookSafe|ggpht\.com|via Google|FeedFetcher-Google|"
+    r"Apple-Mail|MailScanner)",
     re.IGNORECASE,
 )
 
+# Ranges de IP usados pelo proxy de imagens do Gmail/Google.
+# Detecção por IP pega casos onde o UA está camuflado (Gmail mobile às vezes).
+_PROXY_IP_NETS = [
+    # Google
+    ipaddress.ip_network("66.102.0.0/20"),
+    ipaddress.ip_network("66.249.64.0/19"),
+    ipaddress.ip_network("209.85.128.0/17"),
+    ipaddress.ip_network("173.194.0.0/16"),
+    ipaddress.ip_network("64.233.160.0/19"),
+    ipaddress.ip_network("72.14.192.0/18"),
+    ipaddress.ip_network("64.18.0.0/20"),
+    # Yahoo
+    ipaddress.ip_network("98.137.0.0/16"),
+    ipaddress.ip_network("87.248.96.0/19"),
+    # Microsoft
+    ipaddress.ip_network("40.92.0.0/15"),
+    ipaddress.ip_network("40.107.0.0/16"),
+    ipaddress.ip_network("52.100.0.0/14"),
+]
 
-def _classificar_hit(user_agent: str) -> str:
+
+def _ip_eh_proxy(ip: str) -> bool:
+    if not ip or ip in ("?", ""):
+        return False
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(addr in net for net in _PROXY_IP_NETS)
+
+
+def _classificar_hit(user_agent: str, ip: str = "") -> str:
     """Retorna 'proxy' (entrega via pré-fetch) ou 'cliente' (leitura real)."""
-    return "proxy" if _PROXY_UA_RE.search(user_agent or "") else "cliente"
+    if _PROXY_UA_RE.search(user_agent or ""):
+        return "proxy"
+    if _ip_eh_proxy(ip):
+        return "proxy"
+    return "cliente"
 
 
 @app.get("/o/{token}.png")
 def tracking_pixel(token: str, request: Request):
     """Registra abertura do email; retorna sempre PNG 1x1 transparente."""
     ip = request.client.host if request.client else "?"
+    # Quando atrás de proxy (EasyPanel/Traefik), o IP real vem no X-Forwarded-For
+    xff = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    if xff:
+        ip = xff
     ua = request.headers.get("user-agent", "")[:300]
-    tipo = _classificar_hit(ua)
+    tipo = _classificar_hit(ua, ip)
     if token and len(token) <= 64:
         try:
             with get_conn() as conn:

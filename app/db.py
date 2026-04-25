@@ -156,19 +156,34 @@ def _migrar() -> None:
         cols_aberturas = {r["name"] for r in conn.execute("PRAGMA table_info(aberturas)")}
         if "tipo" not in cols_aberturas:
             conn.execute("ALTER TABLE aberturas ADD COLUMN tipo TEXT")
-        # Re-classifica registros antigos (sem tipo) com base no user_agent
+        # Re-classifica registros (sem tipo OU classificados antes da
+        # detecção por IP) — agora também olha IP de proxy do Google/Yahoo/MS.
+        # Idempotente: roda toda partida, mas só atualiza linhas com diff.
         conn.execute("""
-            UPDATE aberturas SET tipo = CASE
-              WHEN user_agent LIKE '%GoogleImageProxy%'   THEN 'proxy'
-              WHEN user_agent LIKE '%YahooMailProxy%'     THEN 'proxy'
-              WHEN user_agent LIKE '%BingPreview%'        THEN 'proxy'
-              WHEN user_agent LIKE '%MicrosoftPreview%'   THEN 'proxy'
-              WHEN user_agent LIKE '%SkypeUriPreview%'    THEN 'proxy'
-              WHEN user_agent LIKE '%OutlookSafe%'        THEN 'proxy'
-              ELSE 'cliente'
-            END
-            WHERE tipo IS NULL
+            UPDATE aberturas SET tipo = 'proxy'
+            WHERE (tipo IS NULL OR tipo = 'cliente') AND (
+                  user_agent LIKE '%GoogleImageProxy%'
+              OR user_agent LIKE '%YahooMailProxy%'
+              OR user_agent LIKE '%BingPreview%'
+              OR user_agent LIKE '%MicrosoftPreview%'
+              OR user_agent LIKE '%SkypeUriPreview%'
+              OR user_agent LIKE '%OutlookSafe%'
+              OR user_agent LIKE '%ggpht.com%'
+              OR user_agent LIKE '%FeedFetcher-Google%'
+              OR ip LIKE '66.102.%' OR ip LIKE '66.249.%'
+              OR ip LIKE '209.85.1%' OR ip LIKE '209.85.2%'
+              OR ip LIKE '173.194.%'
+              OR ip LIKE '64.233.1%' OR ip LIKE '64.233.2%'
+              OR ip LIKE '72.14.%'
+              OR ip LIKE '64.18.%'
+              OR ip LIKE '98.137.%' OR ip LIKE '87.248.%'
+              OR ip LIKE '40.92.%' OR ip LIKE '40.107.%'
+              OR ip LIKE '52.100.%' OR ip LIKE '52.101.%'
+              OR ip LIKE '52.102.%' OR ip LIKE '52.103.%'
+            )
         """)
+        # Marca como 'cliente' qualquer linha que sobrou sem tipo
+        conn.execute("UPDATE aberturas SET tipo = 'cliente' WHERE tipo IS NULL")
 
         cols_perfis = {r["name"] for r in conn.execute("PRAGMA table_info(perfis_remetente)")}
         novas_perfis = [
