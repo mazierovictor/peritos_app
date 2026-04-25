@@ -231,6 +231,31 @@ def disparar_todos() -> None:
     t.start()
 
 
+def importar_xlsx_manual(sigla: str, xlsx_path: Path) -> tuple[int, int, int]:
+    """
+    Importa um XLSX gerado fora da web (rodando o scraper localmente).
+    Cria uma entrada em scraper_runs com status='ok' e log explicativo.
+    Retorna (run_id, novos, atualizados).
+    """
+    info = get(sigla)
+    if info is None:
+        raise ValueError(f"Scraper desconhecido: {sigla}")
+
+    run_id = _criar_run(sigla)
+    _append_log(run_id, f"Importação manual de XLSX ({xlsx_path.name})\n")
+    try:
+        novos, atualizados = _importar_xlsx(xlsx_path, info)
+        _finalizar_run(
+            run_id, "ok",
+            _ler_log(run_id) + f"\nImportação concluída: {novos} novos, {atualizados} atualizados.\n",
+            novos, atualizados,
+        )
+        return run_id, novos, atualizados
+    except Exception as e:
+        _finalizar_run(run_id, "erro", _ler_log(run_id) + f"\nErro: {e!r}\n", 0, 0)
+        raise
+
+
 def get_run(run_id: int) -> dict | None:
     with get_conn() as conn:
         row = conn.execute(

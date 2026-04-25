@@ -61,12 +61,13 @@
       <td>{% if u %}<span style="font-variant-numeric: tabular-nums">{{ u.contatos_novos }} / {{ u.contatos_atualizados }}</span>{% else %}—{% endif %}</td>
       <td class="acoes">
         {% if s.manual %}
-          <button disabled class="btn-secundario" title="Requer CAPTCHA — rode localmente">Indisponível</button>
+          <span class="cinza" style="font-size:12px" title="Requer CAPTCHA — rode localmente">manual</span>
         {% else %}
           <form method="post" action="/scrapers/{{ s.sigla }}/disparar" class="inline">
             <button type="submit" class="btn-primario">Rodar</button>
           </form>
         {% endif %}
+        <a href="/scrapers/{{ s.sigla }}/importar" class="btn-link" title="Importar XLSX gerado localmente">importar</a>
         {% if config_disponivel.get(s.sigla) %}
           <a href="/scrapers/{{ s.sigla }}/config" class="btn-link">configurar</a>
         {% endif %}

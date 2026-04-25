@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block titulo %}Importar XLSX — {{ info.sigla|upper }}{% endblock %}
+{% block conteudo %}
+<a href="/scrapers" class="voltar">← Scrapers</a>
+
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">Importação manual</div>
+    <h1>{{ info.sigla|upper }} <span class="cinza" style="font-size:22px">— {{ info.nome }}</span></h1>
+    <p class="sub">Útil quando o scraper não pode rodar pela web (ex.: TJSC com CAPTCHA, TJRN bloqueado por IP). Rode o script localmente, gere o XLSX e envie aqui.</p>
+  </div>
+</header>
+
+{% if erro %}<div class="alerta-erro">{{ erro }}</div>{% endif %}
+
+<form method="post" enctype="multipart/form-data" action="/scrapers/{{ info.sigla }}/importar" class="form-largo">
+  <fieldset>
+    <legend>Arquivo XLSX</legend>
+    <label>Selecione o arquivo gerado pelo scraper original
+      <input type="file" name="arquivo" accept=".xlsx" required>
+    </label>
+    <small class="cinza">
+      O arquivo deve ter colunas reconhecíveis: <code>Cidade</code> (ou Comarca/Município),
+      <code>Órgão</code> (ou Vara/Unidade) e <code>Email</code> (ou E-mail).
+      Os dados serão associados a <strong>{{ info.sigla|upper }}</strong> ({{ info.estado }}).
+    </small>
+  </fieldset>
+
+  <fieldset>
+    <legend>Como funciona</legend>
+    <ol style="padding-left: 20px; line-height: 1.8;">
+      <li>Rode o script <code>{{ info.script }}</code> na sua máquina local.</li>
+      <li>O script gera o arquivo <code>{{ info.xlsx }}</code> na mesma pasta.</li>
+      <li>Envie esse arquivo aqui — o sistema importa pra base e cria um registro no histórico.</li>
+    </ol>
+    <p class="cinza">Contatos com email já existente para este TJ são <strong>atualizados</strong>; novos são <strong>inseridos</strong>.</p>
+  </fieldset>
+
+  <button type="submit" class="btn-primario">Importar arquivo →</button>
+</form>
+{% endblock %}

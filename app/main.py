@@ -242,6 +242,53 @@ def scrapers_disparar_todos(user: dict = Depends(requer_login)):
     return RedirectResponse(url="/scrapers", status_code=303)
 
 
+@app.get("/scrapers/{sigla}/importar", response_class=HTMLResponse)
+def scrapers_importar_form(sigla: str, request: Request,
+                           user: dict = Depends(requer_login),
+                           erro: str | None = None):
+    info = scraper_registry.get(sigla)
+    if not info:
+        raise HTTPException(404)
+    return templates.TemplateResponse("scraper_importar.html", {
+        "request": request, "user": user, "info": info, "erro": erro,
+    })
+
+
+@app.post("/scrapers/{sigla}/importar")
+async def scrapers_importar_submit(sigla: str, request: Request,
+                                    user: dict = Depends(requer_login),
+                                    arquivo: UploadFile = File(...)):
+    info = scraper_registry.get(sigla)
+    if not info:
+        raise HTTPException(404)
+
+    if not arquivo.filename or not arquivo.filename.lower().endswith(".xlsx"):
+        return templates.TemplateResponse("scraper_importar.html", {
+            "request": request, "user": user, "info": info,
+            "erro": "Envie um arquivo .xlsx (Excel).",
+        })
+
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+        shutil.copyfileobj(arquivo.file, tmp)
+        tmp_path = Path(tmp.name)
+
+    try:
+        run_id, _, _ = scraper_runner.importar_xlsx_manual(sigla, tmp_path)
+    except Exception as e:
+        try: tmp_path.unlink()
+        except Exception: pass
+        return templates.TemplateResponse("scraper_importar.html", {
+            "request": request, "user": user, "info": info,
+            "erro": f"Falha ao importar: {e}",
+        })
+    finally:
+        try: tmp_path.unlink()
+        except Exception: pass
+
+    return RedirectResponse(url=f"/scrapers/run/{run_id}", status_code=303)
+
+
 @app.get("/scrapers/run/{run_id}", response_class=HTMLResponse)
 def scrapers_run(run_id: int, request: Request, user: dict = Depends(requer_login)):
     run = scraper_runner.get_run(run_id)
