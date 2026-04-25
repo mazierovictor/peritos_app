@@ -20,7 +20,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -726,13 +726,19 @@ def historico(
             "bounce_soft": conn.execute(
                 f"SELECT COUNT(*) c FROM envios e WHERE {sql_where} AND e.status = 'bounce_soft'", args
             ).fetchone()["c"],
+            "abertos": conn.execute(
+                f"SELECT COUNT(DISTINCT a.envio_id) c FROM envios e "
+                f"JOIN aberturas a ON a.envio_id = e.id WHERE {sql_where}", args
+            ).fetchone()["c"],
         }
         rows = conn.execute(
             f"""
             SELECT e.id, e.enviado_em, e.status, e.erro_mensagem,
                    e.bounce_em, e.bounce_codigo, e.bounce_diagnostico,
-                   c.email, c.cidade, c.comarca, c.estado, c.tribunal,
-                   p.nome AS perfil_nome
+                   c.email, c.cidade, c.comarca, c.orgao, c.estado, c.tribunal,
+                   p.nome AS perfil_nome,
+                   (SELECT COUNT(*) FROM aberturas a WHERE a.envio_id = e.id) AS aberturas,
+                   (SELECT MIN(aberta_em) FROM aberturas a WHERE a.envio_id = e.id) AS primeira_abertura
               FROM envios e
               JOIN contatos c ON c.id = e.contato_id
               JOIN perfis_remetente p ON p.id = e.perfil_remetente_id
@@ -752,6 +758,117 @@ def historico(
         "request": request, "user": user,
         "perfis": perfis,
         "registros": [dict(r) for r in rows], "total": total, "contagem": contagem,
+        "filtros": filtros, "pagina": pagina, "por_pagina": por_pagina,
+        "paginas_total": max(1, (total + por_pagina - 1) // por_pagina),
+        "qs_pag": qs_pag,
+    })
+
+
+# ─── Histórico por vara (agregado) ─────────────────────────────────────
+
+@app.get("/historico/por-vara", response_class=HTMLResponse)
+def historico_por_vara(
+    request: Request,
+    user: dict = Depends(requer_login),
+    perfil_id: str = "", estado: str = "", tribunal: str = "",
+    q: str = "", ordenar: str = "ultimo",
+    pagina: int = 1,
+):
+    por_pagina = 50
+    pagina = max(1, pagina)
+
+    with get_conn() as conn:
+        perfis = [dict(r) for r in conn.execute(
+            "SELECT id, nome FROM perfis_remetente WHERE usuario_id = ? ORDER BY nome",
+            (user["id"],),
+        )]
+    perfis_ids = [str(p["id"]) for p in perfis]
+
+    where = ["1=1"]
+    args: list = []
+    if perfis_ids:
+        where.append(f"e.perfil_remetente_id IN ({','.join('?' * len(perfis_ids))})")
+        args.extend(perfis_ids)
+    else:
+        where.append("0=1")
+    if perfil_id and perfil_id in perfis_ids:
+        where.append("e.perfil_remetente_id = ?"); args.append(perfil_id)
+    if estado:
+        where.append("c.estado = ?"); args.append(estado)
+    if tribunal:
+        where.append("c.tribunal = ?"); args.append(tribunal)
+    if q:
+        where.append("(c.comarca LIKE ? OR c.orgao LIKE ? OR c.cidade LIKE ?)")
+        like = f"%{q}%"
+        args.extend([like, like, like])
+    sql_where = " AND ".join(where)
+
+    order_col = {
+        "ultimo":   "ultimo_envio DESC",
+        "enviados": "enviados DESC",
+        "abertos":  "abertos DESC",
+        "vara":     "comarca COLLATE NOCASE ASC",
+    }.get(ordenar, "ultimo_envio DESC")
+
+    sql = f"""
+      SELECT
+        c.tribunal, c.estado, c.cidade, c.comarca, c.orgao,
+        COUNT(DISTINCT e.id) AS enviados,
+        SUM(CASE WHEN e.status = 'ok'          THEN 1 ELSE 0 END) AS ok,
+        SUM(CASE WHEN e.status = 'erro'        THEN 1 ELSE 0 END) AS erros,
+        SUM(CASE WHEN e.status = 'bounce'      THEN 1 ELSE 0 END) AS bounces,
+        SUM(CASE WHEN e.status = 'bounce_soft' THEN 1 ELSE 0 END) AS bounces_soft,
+        COUNT(DISTINCT a.envio_id)             AS abertos,
+        MAX(e.enviado_em)                      AS ultimo_envio,
+        MAX(a.aberta_em)                       AS ultima_abertura
+      FROM envios e
+      JOIN contatos c ON c.id = e.contato_id
+      LEFT JOIN aberturas a ON a.envio_id = e.id
+     WHERE {sql_where}
+     GROUP BY c.tribunal, c.estado, c.cidade, c.comarca, c.orgao
+     ORDER BY {order_col}
+     LIMIT ? OFFSET ?
+    """
+    sql_count = f"""
+      SELECT COUNT(*) AS c FROM (
+        SELECT 1
+          FROM envios e
+          JOIN contatos c ON c.id = e.contato_id
+         WHERE {sql_where}
+         GROUP BY c.tribunal, c.estado, c.cidade, c.comarca, c.orgao
+      )
+    """
+
+    with get_conn() as conn:
+        total = conn.execute(sql_count, args).fetchone()["c"]
+        rows = conn.execute(sql, [*args, por_pagina, (pagina - 1) * por_pagina]).fetchall()
+
+        # Totais gerais aplicando os mesmos filtros
+        totais = conn.execute(f"""
+          SELECT
+            COUNT(DISTINCT e.id) AS enviados,
+            COUNT(DISTINCT a.envio_id) AS abertos,
+            SUM(CASE WHEN e.status = 'bounce' THEN 1 ELSE 0 END) AS bounces
+          FROM envios e
+          JOIN contatos c ON c.id = e.contato_id
+          LEFT JOIN aberturas a ON a.envio_id = e.id
+         WHERE {sql_where}
+        """, args).fetchone()
+
+    ufs, tribunais = _ufs_e_tribunais()
+    filtros = {
+        "perfil_id": perfil_id, "estado": estado, "tribunal": tribunal,
+        "q": q, "ordenar": ordenar,
+    }
+
+    def qs_pag(p: int) -> str:
+        return urlencode({**filtros, "pagina": p})
+
+    return templates.TemplateResponse("historico_por_vara.html", {
+        "request": request, "user": user,
+        "registros": [dict(r) for r in rows], "total": total,
+        "totais": dict(totais) if totais else {"enviados": 0, "abertos": 0, "bounces": 0},
+        "perfis": perfis, "ufs": ufs, "tribunais": tribunais,
         "filtros": filtros, "pagina": pagina, "por_pagina": por_pagina,
         "paginas_total": max(1, (total + por_pagina - 1) // por_pagina),
         "qs_pag": qs_pag,
@@ -920,6 +1037,40 @@ def agendamentos_excluir(aid: int, user: dict = Depends(requer_login)):
         conn.execute("DELETE FROM agendamentos WHERE id = ?", (aid,))
     scheduler.recarregar()
     return RedirectResponse(url="/agendamentos", status_code=303)
+
+
+# ─── Tracking pixel (público, sem login) ───────────────────────────────
+
+# PNG 1x1 transparente (67 bytes)
+_PIXEL_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+    "0000000d49444154789c63600100000005000146cdc1390000000049454e44ae426082"
+)
+
+
+@app.get("/o/{token}.png")
+def tracking_pixel(token: str, request: Request):
+    """Registra abertura do email; retorna sempre PNG 1x1 transparente."""
+    if token and len(token) <= 64:
+        try:
+            with get_conn() as conn:
+                row = conn.execute(
+                    "SELECT id FROM envios WHERE tracking_token = ? LIMIT 1", (token,)
+                ).fetchone()
+                if row:
+                    ip = request.client.host if request.client else None
+                    ua = request.headers.get("user-agent", "")[:300]
+                    conn.execute(
+                        "INSERT INTO aberturas (envio_id, ip, user_agent) VALUES (?, ?, ?)",
+                        (row["id"], ip, ua),
+                    )
+        except Exception:
+            pass
+    return Response(
+        content=_PIXEL_PNG,
+        media_type="image/png",
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
 
 
 # ─── Health ────────────────────────────────────────────────────────────

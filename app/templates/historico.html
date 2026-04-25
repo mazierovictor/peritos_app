@@ -6,6 +6,9 @@
     <div class="eyebrow">Auditoria</div>
     <h1>Histórico de envios <span class="cinza" style="font-size:22px">· {{ total }}</span></h1>
   </div>
+  <div class="pagina-header-acoes">
+    <a href="/historico/por-vara" class="btn-secundario">Ver por vara →</a>
+  </div>
 </header>
 
 <form method="get" action="/historico" class="filtros">
@@ -45,16 +48,23 @@
     <div class="card-rotulo">Bounce 4.x.x (filtro)</div>
     <div class="card-valor">{{ contagem.bounce_soft }}</div>
   </div>
+  <div class="card">
+    <div class="card-rotulo">Abertos (filtro)</div>
+    <div class="card-valor">{{ contagem.abertos }}</div>
+  </div>
 </div>
 
 <table class="tabela">
-  <thead><tr><th>Quando</th><th>Para</th><th>Cidade/UF</th><th>TJ</th><th>Perfil</th><th>Status</th><th>Detalhe</th></tr></thead>
+  <thead><tr><th>Quando</th><th>Para</th><th>Vara/Cidade/UF</th><th>TJ</th><th>Perfil</th><th>Status</th><th>Aberto</th><th>Detalhe</th></tr></thead>
   <tbody>
     {% for r in registros %}
     <tr>
       <td><span class="cinza" style="font-variant-numeric: tabular-nums">{{ r.enviado_em }}</span></td>
       <td>{{ r.email }}</td>
-      <td>{{ (r.cidade or r.comarca or '—') }} / {{ r.estado or '—' }}</td>
+      <td>
+        {% if r.orgao or r.comarca %}<strong>{{ r.orgao or r.comarca }}</strong><br>{% endif %}
+        <small class="cinza">{{ (r.cidade or r.comarca or '—') }} / {{ r.estado or '—' }}</small>
+      </td>
       <td>{{ (r.tribunal or '')|upper }}</td>
       <td>{{ r.perfil_nome }}</td>
       <td>
@@ -62,6 +72,14 @@
         {% elif r.status == 'bounce' %}<span class="status status-erro">bounce {{ r.bounce_codigo or '5.x.x' }}</span>
         {% elif r.status == 'bounce_soft' %}<span class="status">soft {{ r.bounce_codigo or '4.x.x' }}</span>
         {% else %}<span class="status status-erro">erro</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if r.aberturas and r.aberturas > 0 %}
+          <span class="status status-ok" title="{{ r.aberturas }} abertura(s)">✓ {{ r.aberturas }}×</span>
+          {% if r.primeira_abertura %}<br><small class="cinza">{{ r.primeira_abertura }}</small>{% endif %}
+        {% else %}
+          <small class="cinza">—</small>
         {% endif %}
       </td>
       <td><small class="cinza">
@@ -74,7 +92,7 @@
       </small></td>
     </tr>
     {% else %}
-    <tr><td colspan="7" class="vazio" style="padding:32px; text-align:center">Nenhum registro com esses filtros.</td></tr>
+    <tr><td colspan="8" class="vazio" style="padding:32px; text-align:center">Nenhum registro com esses filtros.</td></tr>
     {% endfor %}
   </tbody>
 </table>

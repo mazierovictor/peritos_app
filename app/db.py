@@ -69,6 +69,15 @@ CREATE TABLE IF NOT EXISTS envios (
 CREATE INDEX IF NOT EXISTS idx_envios_contato ON envios(contato_id);
 CREATE INDEX IF NOT EXISTS idx_envios_data ON envios(enviado_em);
 
+CREATE TABLE IF NOT EXISTS aberturas (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    envio_id    INTEGER NOT NULL REFERENCES envios(id) ON DELETE CASCADE,
+    aberta_em   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ip          TEXT,
+    user_agent  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_aberturas_envio ON aberturas(envio_id);
+
 CREATE TABLE IF NOT EXISTS bounce_runs (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     perfil_id         INTEGER NOT NULL REFERENCES perfis_remetente(id) ON DELETE CASCADE,
@@ -135,11 +144,13 @@ def _migrar() -> None:
             ("bounce_em",          "TIMESTAMP"),
             ("bounce_codigo",      "TEXT"),
             ("bounce_diagnostico", "TEXT"),
+            ("tracking_token",     "TEXT"),
         ]
         for col, ddl in novas_envios:
             if col not in cols_envios:
                 conn.execute(f"ALTER TABLE envios ADD COLUMN {col} {ddl}")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_envios_message_id ON envios(message_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_envios_tracking_token ON envios(tracking_token)")
 
         cols_perfis = {r["name"] for r in conn.execute("PRAGMA table_info(perfis_remetente)")}
         novas_perfis = [

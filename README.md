@@ -19,6 +19,8 @@ Construída em **FastAPI + SQLite + HTMX**, pensada para rodar em um único cont
 - 📤 **Campanhas de envio** com filtros, limite diário, pausa entre envios e cancelamento em andamento
 - 📊 **Histórico** de envios com filtros por perfil/status/data
 - 📬 **Verificação de bounces (IMAP)** — lê DSNs na caixa do remetente, casa pelo `Message-ID` e marca contatos com bounce permanente (5.x.x) como inválidos automaticamente
+- 👁️ **Rastreamento de abertura** via pixel 1x1 (token único por envio) — vê quem abriu, quando, e quantas vezes
+- 🏛️ **Histórico por vara** — visão agregada por órgão/comarca/cidade com taxa de abertura e bounces
 - ⏰ **Agendamentos cron** para rodar scrapers automaticamente
 
 \* TJSC tem CAPTCHA manual e fica indisponível na versão web.
@@ -167,6 +169,21 @@ Pra fazer backup, basta copiar o conteúdo do volume `/data` (SQLite + currícul
 tar czf /tmp/peritos-backup.tgz /data
 # baixe o /tmp/peritos-backup.tgz pra sua máquina
 ```
+
+---
+
+## Rastreamento de abertura (pixel 1×1)
+
+Cada e-mail enviado recebe um pixel transparente único no HTML, apontando para `${TRACKING_BASE_URL}/o/{token}.png`. Quando a imagem é baixada, registramos a abertura na tabela `aberturas` (data, IP, user-agent).
+
+- Configure a env var `TRACKING_BASE_URL=https://peritos.mspericias.com` (URL pública do app). Se não definir, o pixel não é injetado e o envio funciona normalmente.
+- A coluna **"Aberto"** no `/historico` mostra contagem + data da primeira abertura por envio.
+- A página **`/historico/por-vara`** agrega por órgão/comarca e calcula taxa de abertura.
+
+**Limitações conhecidas** (inerentes a qualquer pixel tracking):
+- Gmail/Apple Mail fazem **proxy de imagens** — o IP capturado é do servidor do Google, não do destinatário, e pode pré-baixar a imagem antes do usuário ler de fato (gera falso positivo).
+- Clientes que **bloqueiam imagens externas** por padrão (Outlook em algumas configs) não disparam o pixel mesmo se o usuário leu.
+- Trate as métricas como **piso, não como verdade absoluta** — abertura registrada = leu provavelmente. Sem registro = pode ter lido ou não.
 
 ---
 

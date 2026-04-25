@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 import random
 import re
+import secrets
 import smtplib
 import threading
 import time
@@ -123,12 +124,13 @@ def _ja_enviado(contato_id: int, perfil_id: int) -> bool:
 def _registrar_envio(
     contato_id: int, perfil_id: int, status: str,
     erro: str | None, message_id: str | None = None,
+    tracking_token: str | None = None,
 ) -> None:
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO envios (contato_id, perfil_remetente_id, status, erro_mensagem, message_id) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (contato_id, perfil_id, status, erro, message_id),
+            "INSERT INTO envios (contato_id, perfil_remetente_id, status, erro_mensagem, "
+            "message_id, tracking_token) VALUES (?, ?, ?, ?, ?, ?)",
+            (contato_id, perfil_id, status, erro, message_id, tracking_token),
         )
 
 
@@ -179,7 +181,22 @@ def _selecionar_contatos(filtros: dict, limite: int, perfil_id: int) -> list[dic
     return [dict(r) for r in rows]
 
 
-def _enviar_um(server: smtplib.SMTP, perfil: dict, contato: dict) -> str:
+def _injetar_pixel(corpo_html: str, token: str) -> str:
+    """Insere um pixel 1x1 transparente no fim do HTML pra rastrear abertura."""
+    base = (settings.tracking_base_url or "").rstrip("/")
+    if not base or not token:
+        return corpo_html
+    pixel = (
+        f'<img src="{base}/o/{token}.png" width="1" height="1" '
+        f'alt="" style="display:none;border:0;outline:none;text-decoration:none;" />'
+    )
+    if "</body>" in corpo_html.lower():
+        i = corpo_html.lower().rfind("</body>")
+        return corpo_html[:i] + pixel + corpo_html[i:]
+    return corpo_html + pixel
+
+
+def _enviar_um(server: smtplib.SMTP, perfil: dict, contato: dict, tracking_token: str) -> str:
     """Envia o e-mail e retorna o Message-ID gerado, para correlação com bounces."""
     msg = MIMEMultipart("mixed")
     sender = f"{perfil['nome']} <{perfil['email_remetente']}>"
@@ -202,7 +219,10 @@ def _enviar_um(server: smtplib.SMTP, perfil: dict, contato: dict) -> str:
     msg["Auto-Submitted"] = "auto-generated"
 
     corpo_txt = _aplicar_template(perfil["corpo_texto"], contato, perfil)
-    corpo_html = _aplicar_template(perfil["corpo_html"], contato, perfil)
+    corpo_html = _injetar_pixel(
+        _aplicar_template(perfil["corpo_html"], contato, perfil),
+        tracking_token,
+    )
 
     alt = MIMEMultipart("alternative")
     alt.attach(MIMEText(corpo_txt, "plain", "utf-8"))
@@ -269,8 +289,9 @@ def _loop_envio(estado_obj: CampanhaEstado, filtros: dict) -> None:
                 continue
 
             try:
-                msg_id = _enviar_um(server, perfil, contato)
-                _registrar_envio(contato["id"], perfil["id"], "ok", None, msg_id)
+                token = secrets.token_urlsafe(16)
+                msg_id = _enviar_um(server, perfil, contato, token)
+                _registrar_envio(contato["id"], perfil["id"], "ok", None, msg_id, token)
                 estado_obj.enviados += 1
             except smtplib.SMTPRecipientsRefused as e:
                 msg_erro = str(e)[:500]

@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block titulo %}Histórico por vara — Peritos{% endblock %}
+{% block conteudo %}
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">Auditoria · agregado</div>
+    <h1>Histórico por vara <span class="cinza" style="font-size:22px">· {{ total }} grupo(s)</span></h1>
+    <p class="sub">Cada linha agrega todos os envios para uma mesma vara/órgão. Útil pra evitar duplicidade e medir alcance real.</p>
+  </div>
+  <div class="pagina-header-acoes">
+    <a href="/historico" class="btn-secundario">← Ver por envio</a>
+  </div>
+</header>
+
+<form method="get" action="/historico/por-vara" class="filtros">
+  <select name="perfil_id">
+    <option value="">Perfil: todos</option>
+    {% for p in perfis %}
+    <option value="{{ p.id }}" {% if filtros.perfil_id == p.id|string %}selected{% endif %}>{{ p.nome }}</option>
+    {% endfor %}
+  </select>
+  <select name="estado">
+    <option value="">UF: todas</option>
+    {% for u in ufs %}<option value="{{ u }}" {% if filtros.estado == u %}selected{% endif %}>{{ u }}</option>{% endfor %}
+  </select>
+  <select name="tribunal">
+    <option value="">TJ: todos</option>
+    {% for t in tribunais %}<option value="{{ t }}" {% if filtros.tribunal == t %}selected{% endif %}>{{ t|upper }}</option>{% endfor %}
+  </select>
+  <input type="text" name="q" value="{{ filtros.q or '' }}" placeholder="busca em vara/comarca/cidade">
+  <select name="ordenar">
+    <option value="ultimo"   {% if filtros.ordenar == 'ultimo' %}selected{% endif %}>Mais recente</option>
+    <option value="enviados" {% if filtros.ordenar == 'enviados' %}selected{% endif %}>Mais enviados</option>
+    <option value="abertos"  {% if filtros.ordenar == 'abertos' %}selected{% endif %}>Mais abertos</option>
+    <option value="vara"     {% if filtros.ordenar == 'vara' %}selected{% endif %}>Vara A→Z</option>
+  </select>
+  <button type="submit" class="btn-primario">Filtrar</button>
+  <a href="/historico/por-vara" class="btn-secundario">Limpar</a>
+</form>
+
+<div class="cards">
+  <div class="card">
+    <div class="card-rotulo">Total de envios</div>
+    <div class="card-valor">{{ totais.enviados or 0 }}</div>
+  </div>
+  <div class="card">
+    <div class="card-rotulo">Abertos (únicos)</div>
+    <div class="card-valor">{{ totais.abertos or 0 }}</div>
+  </div>
+  <div class="card">
+    <div class="card-rotulo">Taxa de abertura</div>
+    <div class="card-valor">
+      {% if totais.enviados and totais.enviados > 0 %}
+        {{ '%.1f'|format(100 * (totais.abertos or 0) / totais.enviados) }}%
+      {% else %}—{% endif %}
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-rotulo">Bounces 5.x.x</div>
+    <div class="card-valor">{{ totais.bounces or 0 }}</div>
+  </div>
+</div>
+
+<table class="tabela">
+  <thead><tr>
+    <th>Vara / Órgão</th><th>Cidade/UF</th><th>TJ</th>
+    <th style="text-align:right">Enviados</th>
+    <th style="text-align:right">Abertos</th>
+    <th style="text-align:right">Bounces</th>
+    <th>Último envio</th>
+    <th>Última abertura</th>
+  </tr></thead>
+  <tbody>
+    {% for r in registros %}
+    <tr>
+      <td><strong>{{ r.orgao or r.comarca or '—' }}</strong>
+        {% if r.orgao and r.comarca and r.orgao != r.comarca %}<br><small class="cinza">{{ r.comarca }}</small>{% endif %}
+      </td>
+      <td>{{ r.cidade or '—' }} / {{ r.estado or '—' }}</td>
+      <td>{{ (r.tribunal or '')|upper }}</td>
+      <td style="text-align:right; font-variant-numeric: tabular-nums">{{ r.enviados }}</td>
+      <td style="text-align:right; font-variant-numeric: tabular-nums">
+        {% if r.abertos and r.abertos > 0 %}
+          <span class="status status-ok">{{ r.abertos }}</span>
+          <small class="cinza">({{ '%.0f'|format(100 * r.abertos / r.enviados) }}%)</small>
+        {% else %}<small class="cinza">0</small>{% endif %}
+      </td>
+      <td style="text-align:right; font-variant-numeric: tabular-nums">
+        {% if r.bounces and r.bounces > 0 %}<span class="status status-erro">{{ r.bounces }}</span>
+        {% else %}<small class="cinza">0</small>{% endif %}
+      </td>
+      <td><small class="cinza" style="font-variant-numeric: tabular-nums">{{ r.ultimo_envio or '—' }}</small></td>
+      <td><small class="cinza" style="font-variant-numeric: tabular-nums">{{ r.ultima_abertura or '—' }}</small></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="8" class="vazio" style="padding:32px; text-align:center">Nenhum envio agrupado encontrado com esses filtros.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if total > por_pagina %}
+<div class="paginacao">
+  {% if pagina > 1 %}<a href="?{{ qs_pag(pagina - 1) }}">← anterior</a>{% endif %}
+  <span>página {{ pagina }} de {{ paginas_total }}</span>
+  {% if pagina < paginas_total %}<a href="?{{ qs_pag(pagina + 1) }}">próxima →</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

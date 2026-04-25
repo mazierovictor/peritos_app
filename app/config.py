@@ -26,6 +26,10 @@ class Settings(BaseSettings):
 
     data_dir: str = "./data"
 
+    # URL pública do app (ex.: https://peritos.mspericias.com).
+    # Vazio = pixel de tracking de abertura desativado.
+    tracking_base_url: str = ""
+
     admin_email: str = ""
     admin_nome: str = ""
     admin_senha: str = ""
