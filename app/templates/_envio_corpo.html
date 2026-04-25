@@ -10,6 +10,16 @@
        hx-swap="outerHTML"
      {% endif %}>
 
+  <div style="display:flex; justify-content:flex-end; gap:8px; margin-bottom:8px;">
+    <button type="button"
+            hx-get="/historico/envio/{{ envio.id }}/atualizar"
+            hx-target="#envio-corpo"
+            hx-swap="outerHTML"
+            class="btn-secundario" style="font-size:13px; padding:6px 14px">
+      ↻ Atualizar agora
+    </button>
+  </div>
+
   <div class="cards">
     <div class="card">
       <div class="card-rotulo">Status atual</div>
@@ -18,7 +28,7 @@
         {% elif envio.status == 'bounce' %}<span class="status status-erro">bounce {{ envio.bounce_codigo or '5.x.x' }}</span>
         {% elif envio.status == 'bounce_soft' %}<span class="status">soft {{ envio.bounce_codigo or '4.x.x' }}</span>
         {% else %}<span class="status status-erro">erro</span>{% endif %}
-        {% if poll_ativo %}<span class="ao-vivo" title="atualizando a cada 4s">● ao vivo</span>{% endif %}
+        {% if poll_ativo %}<span class="ao-vivo" title="atualizando automaticamente a cada 4s">● ao vivo</span>{% endif %}
       </div>
     </div>
     <div class="card">

@@ -873,17 +873,9 @@ def _ctx_envio(envio_id: int, user: dict, request: Request) -> dict:
             (envio_id,),
         )]
 
-    # Polling enquanto o envio é "novo" (até 30 min do envio): pode receber
-    # bounce a qualquer momento e novas aberturas. Depois disso, sem polling.
-    poll_ativo = False
-    try:
-        enviado = datetime.fromisoformat(str(envio["enviado_em"]).replace("Z", "+00:00"))
-        if enviado.tzinfo is None:
-            enviado = enviado.replace(tzinfo=timezone.utc)
-        idade_min = (datetime.now(timezone.utc) - enviado).total_seconds() / 60
-        poll_ativo = idade_min < 30 and envio["status"] in ("ok", "bounce_soft")
-    except Exception:
-        pass
+    # Polling sempre ativo enquanto status indica que pode mudar.
+    # O usuário tem botão "pausar" se quiser parar.
+    poll_ativo = envio["status"] in ("ok", "bounce_soft")
 
     return {
         "request": request, "user": user,
@@ -1193,6 +1185,8 @@ _PIXEL_PNG = bytes.fromhex(
 @app.get("/o/{token}.png")
 def tracking_pixel(token: str, request: Request):
     """Registra abertura do email; retorna sempre PNG 1x1 transparente."""
+    ip = request.client.host if request.client else "?"
+    ua = request.headers.get("user-agent", "")[:120]
     if token and len(token) <= 64:
         try:
             with get_conn() as conn:
@@ -1200,14 +1194,17 @@ def tracking_pixel(token: str, request: Request):
                     "SELECT id FROM envios WHERE tracking_token = ? LIMIT 1", (token,)
                 ).fetchone()
                 if row:
-                    ip = request.client.host if request.client else None
-                    ua = request.headers.get("user-agent", "")[:300]
                     conn.execute(
                         "INSERT INTO aberturas (envio_id, ip, user_agent) VALUES (?, ?, ?)",
-                        (row["id"], ip, ua),
+                        (row["id"], ip, ua[:300]),
                     )
-        except Exception:
-            pass
+                    print(f"[tracking] OK envio={row['id']} token={token} ip={ip} ua={ua!r}", flush=True)
+                else:
+                    print(f"[tracking] TOKEN_NAO_ENCONTRADO token={token} ip={ip}", flush=True)
+        except Exception as e:
+            print(f"[tracking] ERRO token={token}: {e!r}", flush=True)
+    else:
+        print(f"[tracking] TOKEN_INVALIDO token={token!r}", flush=True)
     return Response(
         content=_PIXEL_PNG,
         media_type="image/png",
