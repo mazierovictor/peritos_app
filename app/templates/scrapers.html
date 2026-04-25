@@ -60,7 +60,7 @@
       <td>
         {% if u %}
           <a href="/scrapers/run/{{ u.id }}" class="cinza" style="text-decoration:none">
-            {{ u.finalizado_em or u.iniciado_em }}
+            {{ (u.finalizado_em or u.iniciado_em) | local_dt }}
           </a>
         {% else %}—{% endif %}
       </td>

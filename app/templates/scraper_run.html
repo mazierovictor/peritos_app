@@ -17,11 +17,11 @@
   </div>
   <div class="card">
     <div class="card-rotulo">Iniciado</div>
-    <div class="card-valor pequeno">{{ run.iniciado_em }}</div>
+    <div class="card-valor pequeno">{{ run.iniciado_em | local_dt('%d/%m/%Y %H:%M:%S') }}</div>
   </div>
   <div class="card">
     <div class="card-rotulo">Finalizado</div>
-    <div class="card-valor pequeno">{{ run.finalizado_em or '—' }}</div>
+    <div class="card-valor pequeno">{{ run.finalizado_em | local_dt('%d/%m/%Y %H:%M:%S') }}</div>
   </div>
   <div class="card">
     <div class="card-rotulo">Novos / Atualizados</div>

@@ -47,7 +47,7 @@
         <div class="timeline-icon">📤</div>
         <div class="timeline-conteudo">
           <div class="timeline-titulo">E-mail aceito pelo servidor SMTP</div>
-          <div class="timeline-data">{{ envio.enviado_em }}</div>
+          <div class="timeline-data">{{ envio.enviado_em | local_dt('%d/%m/%Y %H:%M:%S') }}</div>
           <div class="timeline-detalhe cinza">
             De {{ envio.email_remetente }} para {{ envio.contato_email }}
             {% if envio.message_id %}<br><small>Message-ID: <code>{{ envio.message_id }}</code></small>{% endif %}
@@ -59,7 +59,7 @@
         <div class="timeline-icon">❌</div>
         <div class="timeline-conteudo">
           <div class="timeline-titulo">Falha ao enviar pelo SMTP</div>
-          <div class="timeline-data">{{ envio.enviado_em }}</div>
+          <div class="timeline-data">{{ envio.enviado_em | local_dt('%d/%m/%Y %H:%M:%S') }}</div>
           <div class="timeline-detalhe cinza">{{ envio.erro_mensagem or 'Erro sem detalhes' }}</div>
         </div>
       </li>
@@ -73,7 +73,7 @@
           <div class="timeline-titulo">
             {% if envio.status == 'bounce' %}Bounce permanente — destinatário inválido{% else %}Bounce temporário — falha transitória{% endif %}
           </div>
-          <div class="timeline-data">{{ envio.bounce_em or '—' }}</div>
+          <div class="timeline-data">{{ envio.bounce_em | local_dt('%d/%m/%Y %H:%M:%S') }}</div>
           <div class="timeline-detalhe cinza">
             Código: <code>{{ envio.bounce_codigo or '—' }}</code><br>
             {{ envio.bounce_diagnostico or 'sem diagnóstico' }}
@@ -108,7 +108,7 @@
           <div class="timeline-titulo">
             {% if loop.first %}Primeira abertura{% else %}Aberto novamente <small class="cinza">({{ loop.index }}ª vez)</small>{% endif %}
           </div>
-          <div class="timeline-data">{{ a.aberta_em }}</div>
+          <div class="timeline-data">{{ a.aberta_em | local_dt('%d/%m/%Y %H:%M:%S') }}</div>
           <div class="timeline-detalhe cinza">
             {% if a.ip %}IP: <code>{{ a.ip }}</code>{% endif %}
             {% if a.user_agent %}<br><small>UA: {{ a.user_agent[:140] }}</small>{% endif %}

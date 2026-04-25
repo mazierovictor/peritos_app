@@ -16,8 +16,10 @@ Estrutura das rotas:
 from __future__ import annotations
 
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse, Response
@@ -44,6 +46,30 @@ from .scrapers import runner as scraper_runner
 
 BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+_TZ_SP = ZoneInfo("America/Sao_Paulo")
+
+
+def _filtro_local_dt(valor, fmt: str = "%d/%m/%Y %H:%M") -> str:
+    """Converte timestamp UTC (string SQLite ou datetime) para America/Sao_Paulo."""
+    if not valor:
+        return "—"
+    if isinstance(valor, str):
+        try:
+            dt = datetime.fromisoformat(valor.replace("Z", "+00:00"))
+        except ValueError:
+            return valor
+    elif isinstance(valor, datetime):
+        dt = valor
+    else:
+        return str(valor)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_TZ_SP).strftime(fmt)
+
+
+templates.env.filters["local_dt"] = _filtro_local_dt
 
 app = FastAPI(title="Peritos — Painel")
 

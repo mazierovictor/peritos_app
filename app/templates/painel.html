@@ -31,7 +31,7 @@
       <strong>{{ ultima_execucao.tribunal|upper }}</strong>
       &middot; <span class="status status-{{ ultima_execucao.status }}">{{ ultima_execucao.status }}</span>
       {% if ultima_execucao.finalizado_em %}
-        &middot; <span class="cinza">finalizado em {{ ultima_execucao.finalizado_em }}</span>
+        &middot; <span class="cinza">finalizado em {{ ultima_execucao.finalizado_em | local_dt }}</span>
       {% endif %}
     </p>
   {% else %}

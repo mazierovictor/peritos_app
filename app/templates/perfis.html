@@ -27,7 +27,7 @@
         {% elif p.ultima_bounce_run %}
           {% set r = p.ultima_bounce_run %}
           {% if r.status == 'ok' %}
-            <small><span class="status status-ok">ok</span> {{ r.bounces_novos }} bounce(s) · {{ r.finalizado_em or '...' }}</small>
+            <small><span class="status status-ok">ok</span> {{ r.bounces_novos }} bounce(s) · {{ r.finalizado_em | local_dt }}</small>
           {% elif r.status == 'rodando' %}
             <small class="cinza">rodando…</small>
           {% else %}

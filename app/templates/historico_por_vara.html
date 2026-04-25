@@ -89,8 +89,8 @@
         {% if r.bounces and r.bounces > 0 %}<span class="status status-erro">{{ r.bounces }}</span>
         {% else %}<small class="cinza">0</small>{% endif %}
       </td>
-      <td><small class="cinza" style="font-variant-numeric: tabular-nums">{{ r.ultimo_envio or '—' }}</small></td>
-      <td><small class="cinza" style="font-variant-numeric: tabular-nums">{{ r.ultima_abertura or '—' }}</small></td>
+      <td><small class="cinza" style="font-variant-numeric: tabular-nums">{{ r.ultimo_envio | local_dt }}</small></td>
+      <td><small class="cinza" style="font-variant-numeric: tabular-nums">{{ r.ultima_abertura | local_dt }}</small></td>
     </tr>
     {% else %}
     <tr><td colspan="8" class="vazio" style="padding:32px; text-align:center">Nenhum envio agrupado encontrado com esses filtros.</td></tr>

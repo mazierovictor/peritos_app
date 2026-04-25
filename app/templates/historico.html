@@ -59,7 +59,7 @@
   <tbody>
     {% for r in registros %}
     <tr>
-      <td><a href="/historico/envio/{{ r.id }}" style="font-variant-numeric: tabular-nums">{{ r.enviado_em }}</a></td>
+      <td><a href="/historico/envio/{{ r.id }}" style="font-variant-numeric: tabular-nums">{{ r.enviado_em | local_dt }}</a></td>
       <td><a href="/historico/envio/{{ r.id }}">{{ r.email }}</a></td>
       <td>
         {% if r.orgao or r.comarca %}<strong>{{ r.orgao or r.comarca }}</strong><br>{% endif %}
@@ -77,7 +77,7 @@
       <td>
         {% if r.aberturas and r.aberturas > 0 %}
           <span class="status status-ok" title="{{ r.aberturas }} abertura(s)">✓ {{ r.aberturas }}×</span>
-          {% if r.primeira_abertura %}<br><small class="cinza">{{ r.primeira_abertura }}</small>{% endif %}
+          {% if r.primeira_abertura %}<br><small class="cinza">{{ r.primeira_abertura | local_dt }}</small>{% endif %}
         {% else %}
           <small class="cinza">—</small>
         {% endif %}
@@ -85,7 +85,7 @@
       <td><small class="cinza">
         {% if r.status in ('bounce', 'bounce_soft') %}
           {{ (r.bounce_diagnostico or '')[:120] }}
-          {% if r.bounce_em %}<br><em>{{ r.bounce_em }}</em>{% endif %}
+          {% if r.bounce_em %}<br><em>{{ r.bounce_em | local_dt }}</em>{% endif %}
         {% else %}
           {{ (r.erro_mensagem or '')[:120] }}
         {% endif %}

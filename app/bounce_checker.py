@@ -127,11 +127,15 @@ def _extrair_dsn(msg: Message) -> tuple[str | None, str | None, str | None]:
 
 
 def _bounce_em(msg: Message) -> str | None:
+    """Retorna a data do bounce normalizada em UTC (formato SQLite)."""
     raw = msg.get("Date")
     if not raw:
         return None
     try:
+        from datetime import timezone
         dt = parsedate_to_datetime(str(raw))
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
         return dt.strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         return None
