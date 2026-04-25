@@ -240,15 +240,27 @@ def append_records(records: list, filename: str) -> None:
 
 def setup_driver() -> webdriver.Chrome:
     opts = Options()
-    # opts.add_argument("--headless=new")  # descomente para headless
+    # Em container/servidor sempre força headless (CHROME_BIN é setada no Dockerfile)
+    if os.environ.get("CHROME_BIN"):
+        opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
     opts.add_argument("--window-size=1400,900")
     opts.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     )
-    driver = webdriver.Chrome(options=opts)
+
+    chrome_bin = os.environ.get("CHROME_BIN")
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
+    if chrome_bin:
+        opts.binary_location = chrome_bin
+
+    if chromedriver_path:
+        from selenium.webdriver.chrome.service import Service as _ChromeService
+        driver = webdriver.Chrome(service=_ChromeService(chromedriver_path), options=opts)
+    else:
+        driver = webdriver.Chrome(options=opts)
     return driver
 
 

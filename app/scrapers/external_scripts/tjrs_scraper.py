@@ -114,7 +114,8 @@ def is_organ_allowed(name: str) -> bool:
 
 def create_driver() -> webdriver.Chrome:
     opts = Options()
-    if HEADLESS:
+    # Em container/servidor sempre força headless
+    if HEADLESS or os.environ.get("CHROME_BIN"):
         opts.add_argument("--headless=new")
     opts.add_argument("--no-sandbox")
     opts.add_argument("--disable-dev-shm-usage")
@@ -123,10 +124,19 @@ def create_driver() -> webdriver.Chrome:
     opts.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/121.0.0.0 Safari/537.36"
+        "Chrome/131.0.0.0 Safari/537.36"
     )
 
-    if USE_WDM:
+    chrome_bin = os.environ.get("CHROME_BIN")
+    chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
+    if chrome_bin:
+        opts.binary_location = chrome_bin
+
+    if chromedriver_path:
+        # Usa o chromedriver instalado no container (versão casa com o Chromium)
+        service = Service(chromedriver_path)
+        driver = webdriver.Chrome(service=service, options=opts)
+    elif USE_WDM:
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=opts)
     else:
