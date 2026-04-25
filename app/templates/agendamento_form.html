@@ -30,10 +30,12 @@
     <legend>Scraper</legend>
     <label>Tribunal
       <select name="alvo">
+        <option value="todos">⚡ Todos os tribunais (em sequência)</option>
         {% for s in scrapers %}{% if not s.manual %}
         <option value="{{ s.sigla }}">{{ s.sigla|upper }} — {{ s.nome }}</option>
         {% endif %}{% endfor %}
       </select>
+      <small class="cinza">Escolher "Todos" roda os tribunais um após o outro — pode levar várias horas.</small>
     </label>
   </fieldset>
 

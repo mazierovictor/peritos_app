@@ -41,7 +41,10 @@ def _executar_job(ag_id: int) -> None:
     if ag["tipo"] == "scraper":
         from .scrapers import runner as scraper_runner
         try:
-            scraper_runner.disparar(ag["alvo"])
+            if (ag.get("alvo") or "").lower() == "todos":
+                scraper_runner.disparar_todos()
+            else:
+                scraper_runner.disparar(ag["alvo"])
         except Exception:
             pass
 

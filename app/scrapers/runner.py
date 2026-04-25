@@ -210,6 +210,27 @@ def disparar(sigla: str) -> int:
     return run_id
 
 
+def _executar_todos_sequencial() -> None:
+    """Roda cada scraper não-manual, um após o outro, na mesma thread."""
+    for s in SCRAPERS.values():
+        if s.manual:
+            continue
+        try:
+            run_id = _criar_run(s.sigla)
+            _executar(run_id, s)
+        except Exception:
+            # erros já são gravados em _executar; segue pro próximo
+            pass
+
+
+def disparar_todos() -> None:
+    """Dispara todos os scrapers (exceto manuais) em sequência, em background."""
+    t = threading.Thread(
+        target=_executar_todos_sequencial, daemon=True, name="scraper-todos"
+    )
+    t.start()
+
+
 def get_run(run_id: int) -> dict | None:
     with get_conn() as conn:
         row = conn.execute(

@@ -7,6 +7,12 @@
     <h1>Scrapers</h1>
     <p class="sub">Cada botão dispara a busca no respectivo Tribunal. A execução roda em segundo plano — você pode sair desta tela e acompanhar pelo log.</p>
   </div>
+  <div class="pagina-header-acoes">
+    <form method="post" action="/scrapers/disparar-todos" class="inline"
+          onsubmit="return confirm('Rodar TODOS os tribunais (exceto TJSC manual) em sequência? Pode levar várias horas.');">
+      <button type="submit" class="btn-primario">⚡ Rodar todos</button>
+    </form>
+  </div>
 </header>
 
 {% if rodando %}

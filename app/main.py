@@ -236,6 +236,12 @@ def scrapers_disparar(sigla: str, user: dict = Depends(requer_login)):
     return RedirectResponse(url=f"/scrapers/run/{run_id}", status_code=303)
 
 
+@app.post("/scrapers/disparar-todos")
+def scrapers_disparar_todos(user: dict = Depends(requer_login)):
+    scraper_runner.disparar_todos()
+    return RedirectResponse(url="/scrapers", status_code=303)
+
+
 @app.get("/scrapers/run/{run_id}", response_class=HTMLResponse)
 def scrapers_run(run_id: int, request: Request, user: dict = Depends(requer_login)):
     run = scraper_runner.get_run(run_id)
@@ -693,7 +699,10 @@ def _quando(ag: dict) -> str:
 
 def _o_que(ag: dict) -> str:
     if ag.get("tipo") == "scraper":
-        return f"Scraper {(ag.get('alvo') or '').upper()}"
+        alvo = (ag.get("alvo") or "").lower()
+        if alvo == "todos":
+            return "Scraper · todos os tribunais (em sequência)"
+        return f"Scraper {alvo.upper()}"
     if ag.get("tipo") == "campanha":
         partes = []
         if ag.get("filtro_tribunal"):
