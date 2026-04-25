@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block titulo %}Execução {{ run.id }} — {{ run.tribunal|upper }}{% endblock %}
+{% block conteudo %}
+<a href="/scrapers" class="link-pequeno">← voltar</a>
+<h1>Execução #{{ run.id }} — {{ run.tribunal|upper }}</h1>
+
+<div class="cards">
+  <div class="card"><div class="card-rotulo">Status</div><div class="card-valor"><span class="status status-{{ run.status }}">{{ run.status }}</span></div></div>
+  <div class="card"><div class="card-rotulo">Iniciado em</div><div class="card-valor pequeno">{{ run.iniciado_em }}</div></div>
+  <div class="card"><div class="card-rotulo">Finalizado em</div><div class="card-valor pequeno">{{ run.finalizado_em or '—' }}</div></div>
+  <div class="card"><div class="card-rotulo">Novos / Atualizados</div><div class="card-valor">{{ run.contatos_novos }} / {{ run.contatos_atualizados }}</div></div>
+</div>
+
+<section class="bloco" {% if run.status == 'rodando' %}hx-get="/scrapers/run/{{ run.id }}/log" hx-trigger="every 2s" hx-target="#log"{% endif %}>
+  <h2>Log</h2>
+  <pre id="log" class="log">{{ run.log or '(vazio)' }}</pre>
+</section>
+{% endblock %}

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block titulo %}{% if perfil %}Editar perfil{% else %}Novo perfil{% endif %} — Peritos{% endblock %}
+{% block conteudo %}
+<a href="/perfis" class="link-pequeno">← voltar</a>
+<h1>{% if perfil %}Editar perfil{% else %}Novo perfil{% endif %}</h1>
+
+{% if erro %}<div class="alerta-erro">{{ erro }}</div>{% endif %}
+
+<form method="post" enctype="multipart/form-data" action="{% if perfil %}/perfis/{{ perfil.id }}/editar{% else %}/perfis/novo{% endif %}" class="form-largo">
+  <fieldset>
+    <legend>Identificação</legend>
+    <label>Nome do remetente
+      <input type="text" name="nome" value="{{ (perfil and perfil.nome) or '' }}" required>
+    </label>
+    <label>E-mail (Gmail recomendado)
+      <input type="email" name="email_remetente" value="{{ (perfil and perfil.email_remetente) or '' }}" required>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Servidor SMTP</legend>
+    <div class="grade-2">
+      <label>Host
+        <input type="text" name="smtp_host" value="{{ (perfil and perfil.smtp_host) or 'smtp.gmail.com' }}" required>
+      </label>
+      <label>Porta
+        <input type="number" name="smtp_port" value="{{ (perfil and perfil.smtp_port) or 587 }}" required>
+      </label>
+    </div>
+    <label>Senha de aplicativo
+      <input type="password" name="smtp_senha" placeholder="{% if perfil %}(deixe em branco para manter){% else %}xxxx xxxx xxxx xxxx{% endif %}" {% if not perfil %}required{% endif %}>
+      <small class="cinza">No Gmail, gere uma senha de app em <em>myaccount.google.com → Segurança → Senhas de app</em>.</small>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Modelo de e-mail</legend>
+    <label>Assunto
+      <input type="text" name="assunto" value="{{ (perfil and perfil.assunto) or 'Apresentação e Disponibilidade para Atuação como Perito Contábil' }}" required>
+    </label>
+    <label>Corpo (texto puro)
+      <textarea name="corpo_texto" rows="10" required>{{ (perfil and perfil.corpo_texto) or modelo_texto_padrao }}</textarea>
+    </label>
+    <label>Corpo (HTML)
+      <textarea name="corpo_html" rows="14" required>{{ (perfil and perfil.corpo_html) or modelo_html_padrao }}</textarea>
+    </label>
+    <small class="cinza">
+      Variáveis disponíveis (use no formato <code>$nome</code>):
+      <code>$cidade</code>, <code>$comarca</code>, <code>$orgao</code>, <code>$estado</code>,
+      <code>$tribunal</code>, <code>$sistema</code>, <code>$remetente</code>, <code>$email_remetente</code>.
+    </small>
+    <label>Assinatura (opcional, plain text)
+      <textarea name="assinatura" rows="3">{{ (perfil and perfil.assinatura) or '' }}</textarea>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Anexo & Limite</legend>
+    <label>Currículo (PDF)
+      <input type="file" name="curriculo" accept="application/pdf">
+      {% if perfil and perfil.curriculo_path %}
+        <small class="cinza">Atual: {{ perfil.curriculo_path.split('/')[-1] }} (envie um novo para substituir)</small>
+      {% endif %}
+    </label>
+    <label>Limite diário de e-mails
+      <input type="number" name="limite_diario" value="{{ (perfil and perfil.limite_diario) or 200 }}" min="1" max="500" required>
+    </label>
+  </fieldset>
+
+  <button type="submit" class="btn-primario">{% if perfil %}Salvar alterações{% else %}Criar perfil{% endif %}</button>
+</form>
+{% endblock %}

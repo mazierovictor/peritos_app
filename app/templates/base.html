@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}Peritos{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+</head>
+<body>
+  {% if user %}
+  <nav class="topo">
+    <div class="topo-marca">Peritos</div>
+    <div class="topo-links">
+      <a href="/painel">Painel</a>
+      <a href="/scrapers">Scrapers</a>
+      <a href="/contatos">Contatos</a>
+      <a href="/perfis">Perfis</a>
+      <a href="/campanhas">Campanhas</a>
+      <a href="/historico">Histórico</a>
+      <a href="/agendamentos">Agendamentos</a>
+    </div>
+    <div class="topo-usuario">
+      <span>{{ user.nome }}</span>
+      <form method="post" action="/logout" class="inline">
+        <button type="submit" class="btn-link">Sair</button>
+      </form>
+    </div>
+  </nav>
+  {% endif %}
+
+  <main class="conteudo">
+    {% block conteudo %}{% endblock %}
+  </main>
+</body>
+</html>

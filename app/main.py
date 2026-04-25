@@ -1,0 +1,606 @@
+"""
+Aplicação FastAPI — ponto de entrada com todas as rotas.
+
+Estrutura das rotas:
+  /                          → redireciona conforme login
+  /login, /logout            → autenticação
+  /painel                    → dashboard
+  /scrapers                  → lista TJs e dispara scraping
+  /contatos                  → CRUD de contatos
+  /perfis                    → CRUD de perfis de remetente
+  /campanhas                 → disparo de campanha
+  /historico                 → log de envios
+  /agendamentos              → cron interno
+  /healthz                   → health check
+"""
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+from urllib.parse import urlencode
+
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+
+from .auth import (
+    LoginRequired,
+    autenticar,
+    garantir_usuarios_iniciais,
+    redirect_to_login,
+    requer_login,
+    usuario_atual,
+)
+from .config import settings
+from .crypto import encrypt
+from .db import get_conn, init_db
+from . import mailer, scheduler
+from .scrapers import registry as scraper_registry
+from .scrapers import runner as scraper_runner
+
+
+BASE_DIR = Path(__file__).parent
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+app = FastAPI(title="Peritos — Painel")
+
+app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, https_only=False)
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+
+# ─── Modelos padrão de e-mail (apenas como pré-preenchimento ao criar perfil) ───
+
+MODELO_TEXTO_PADRAO = """\
+Excelentíssimo(a) Senhor(a) Juiz(a),
+
+Meu nome é $remetente e me coloco à disposição deste Juízo para atuar como Perito.
+
+OBS.: Já possuo cadastro de Auxiliar da Justiça validado junto ao $sistema.
+
+Atenciosamente,
+$remetente
+$email_remetente
+"""
+
+MODELO_HTML_PADRAO = """\
+<p>Excelentíssimo(a) Senhor(a) Juiz(a),</p>
+<p>Meu nome é <strong>$remetente</strong> e me coloco à disposição deste Juízo para atuar como Perito.</p>
+<p><strong>OBS.:</strong> Já possuo cadastro de Auxiliar da Justiça validado junto ao $sistema.</p>
+<p>Atenciosamente,<br><strong>$remetente</strong><br>$email_remetente</p>
+"""
+
+
+# ─── Lifecycle ─────────────────────────────────────────────────────────
+
+@app.on_event("startup")
+def _startup() -> None:
+    init_db()
+    garantir_usuarios_iniciais()
+    scheduler.iniciar()
+
+
+@app.on_event("shutdown")
+def _shutdown() -> None:
+    scheduler.parar()
+
+
+@app.exception_handler(LoginRequired)
+async def _login_required_handler(_: Request, __: LoginRequired):
+    return redirect_to_login()
+
+
+# ─── Helpers ───────────────────────────────────────────────────────────
+
+def _ufs_e_tribunais() -> tuple[list[str], list[str]]:
+    with get_conn() as conn:
+        ufs = [r["estado"] for r in conn.execute(
+            "SELECT DISTINCT estado FROM contatos WHERE estado IS NOT NULL ORDER BY estado"
+        )]
+        tribunais = [r["tribunal"] for r in conn.execute(
+            "SELECT DISTINCT tribunal FROM contatos WHERE tribunal IS NOT NULL ORDER BY tribunal"
+        )]
+    return ufs, tribunais
+
+
+def _curriculos_dir() -> Path:
+    p = Path(settings.data_dir) / "curriculos"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+# ─── Login ─────────────────────────────────────────────────────────────
+
+@app.get("/", response_class=HTMLResponse)
+def root(request: Request):
+    if usuario_atual(request):
+        return RedirectResponse(url="/painel", status_code=303)
+    return RedirectResponse(url="/login", status_code=303)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request, erro: str | None = None):
+    if usuario_atual(request):
+        return RedirectResponse(url="/painel", status_code=303)
+    return templates.TemplateResponse("login.html", {"request": request, "erro": erro})
+
+
+@app.post("/login")
+def login_submit(request: Request, email: str = Form(...), senha: str = Form(...)):
+    user = autenticar(email, senha)
+    if not user:
+        return templates.TemplateResponse(
+            "login.html",
+            {"request": request, "erro": "Email ou senha inválidos."},
+            status_code=401,
+        )
+    request.session["user_id"] = user["id"]
+    return RedirectResponse(url="/painel", status_code=303)
+
+
+@app.post("/logout")
+def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/login", status_code=303)
+
+
+# ─── Painel ────────────────────────────────────────────────────────────
+
+@app.get("/painel", response_class=HTMLResponse)
+def painel(request: Request, user: dict = Depends(requer_login)):
+    with get_conn() as conn:
+        total_contatos = conn.execute("SELECT COUNT(*) c FROM contatos").fetchone()["c"]
+        total_envios = conn.execute("SELECT COUNT(*) c FROM envios WHERE status = 'ok'").fetchone()["c"]
+        envios_hoje = conn.execute(
+            "SELECT COUNT(*) c FROM envios WHERE status = 'ok' "
+            "AND date(enviado_em) = date('now', 'localtime')"
+        ).fetchone()["c"]
+        ultima = conn.execute(
+            "SELECT tribunal, finalizado_em, status FROM scraper_runs ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    return templates.TemplateResponse("painel.html", {
+        "request": request, "user": user,
+        "total_contatos": total_contatos, "total_envios": total_envios,
+        "envios_hoje": envios_hoje,
+        "ultima_execucao": dict(ultima) if ultima else None,
+    })
+
+
+# ─── Scrapers ──────────────────────────────────────────────────────────
+
+@app.get("/scrapers", response_class=HTMLResponse)
+def scrapers_lista(request: Request, user: dict = Depends(requer_login)):
+    return templates.TemplateResponse("scrapers.html", {
+        "request": request, "user": user,
+        "scrapers": scraper_registry.listar(),
+        "ultimas": scraper_runner.ultima_run_por_tribunal(),
+    })
+
+
+@app.post("/scrapers/{sigla}/disparar")
+def scrapers_disparar(sigla: str, user: dict = Depends(requer_login)):
+    try:
+        run_id = scraper_runner.disparar(sigla)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return RedirectResponse(url=f"/scrapers/run/{run_id}", status_code=303)
+
+
+@app.get("/scrapers/run/{run_id}", response_class=HTMLResponse)
+def scrapers_run(run_id: int, request: Request, user: dict = Depends(requer_login)):
+    run = scraper_runner.get_run(run_id)
+    if not run:
+        raise HTTPException(404, "Execução não encontrada")
+    return templates.TemplateResponse("scraper_run.html", {
+        "request": request, "user": user, "run": run,
+    })
+
+
+@app.get("/scrapers/run/{run_id}/log", response_class=HTMLResponse)
+def scrapers_run_log(run_id: int, user: dict = Depends(requer_login)):
+    run = scraper_runner.get_run(run_id)
+    if not run:
+        raise HTTPException(404)
+    return HTMLResponse(f"<pre id='log' class='log'>{(run['log'] or '')}</pre>")
+
+
+# ─── Contatos ──────────────────────────────────────────────────────────
+
+@app.get("/contatos", response_class=HTMLResponse)
+def contatos_lista(
+    request: Request,
+    user: dict = Depends(requer_login),
+    q: str = "", estado: str = "", tribunal: str = "", invalido: str = "",
+    pagina: int = 1,
+):
+    por_pagina = 50
+    pagina = max(1, pagina)
+
+    where = ["1=1"]
+    args: list = []
+    if q:
+        where.append("(email LIKE ? OR cidade LIKE ? OR comarca LIKE ? OR orgao LIKE ?)")
+        like = f"%{q}%"
+        args.extend([like, like, like, like])
+    if estado:
+        where.append("estado = ?"); args.append(estado)
+    if tribunal:
+        where.append("tribunal = ?"); args.append(tribunal)
+    if invalido in ("0", "1"):
+        where.append("invalido = ?"); args.append(int(invalido))
+    sql_where = " AND ".join(where)
+
+    with get_conn() as conn:
+        total = conn.execute(f"SELECT COUNT(*) c FROM contatos WHERE {sql_where}", args).fetchone()["c"]
+        rows = conn.execute(
+            f"SELECT * FROM contatos WHERE {sql_where} ORDER BY id DESC LIMIT ? OFFSET ?",
+            [*args, por_pagina, (pagina - 1) * por_pagina],
+        ).fetchall()
+    contatos = [dict(r) for r in rows]
+    ufs, tribunais = _ufs_e_tribunais()
+
+    filtros = {"q": q, "estado": estado, "tribunal": tribunal, "invalido": invalido}
+
+    def qs_pag(p: int) -> str:
+        return urlencode({**filtros, "pagina": p})
+
+    return templates.TemplateResponse("contatos.html", {
+        "request": request, "user": user,
+        "contatos": contatos, "total": total,
+        "ufs": ufs, "tribunais": tribunais,
+        "filtros": filtros, "pagina": pagina, "por_pagina": por_pagina,
+        "paginas_total": max(1, (total + por_pagina - 1) // por_pagina),
+        "qs_pag": qs_pag,
+    })
+
+
+@app.post("/contatos/{cid}/toggle")
+def contatos_toggle(cid: int, user: dict = Depends(requer_login)):
+    with get_conn() as conn:
+        conn.execute("UPDATE contatos SET invalido = 1 - invalido WHERE id = ?", (cid,))
+    return RedirectResponse(url="/contatos", status_code=303)
+
+
+@app.post("/contatos/{cid}/excluir")
+def contatos_excluir(cid: int, user: dict = Depends(requer_login)):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM contatos WHERE id = ?", (cid,))
+    return RedirectResponse(url="/contatos", status_code=303)
+
+
+# ─── Perfis de remetente ───────────────────────────────────────────────
+
+@app.get("/perfis", response_class=HTMLResponse)
+def perfis_lista(request: Request, user: dict = Depends(requer_login)):
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM perfis_remetente WHERE usuario_id = ? ORDER BY id DESC",
+            (user["id"],),
+        ).fetchall()
+    return templates.TemplateResponse("perfis.html", {
+        "request": request, "user": user, "perfis": [dict(r) for r in rows],
+    })
+
+
+@app.get("/perfis/novo", response_class=HTMLResponse)
+def perfil_novo_form(request: Request, user: dict = Depends(requer_login), erro: str | None = None):
+    return templates.TemplateResponse("perfil_form.html", {
+        "request": request, "user": user, "perfil": None, "erro": erro,
+        "modelo_texto_padrao": MODELO_TEXTO_PADRAO,
+        "modelo_html_padrao": MODELO_HTML_PADRAO,
+    })
+
+
+@app.post("/perfis/novo")
+async def perfil_novo_submit(
+    request: Request,
+    user: dict = Depends(requer_login),
+    nome: str = Form(...),
+    email_remetente: str = Form(...),
+    smtp_host: str = Form(...),
+    smtp_port: int = Form(...),
+    smtp_senha: str = Form(...),
+    assunto: str = Form(...),
+    corpo_texto: str = Form(...),
+    corpo_html: str = Form(...),
+    assinatura: str = Form(""),
+    limite_diario: int = Form(200),
+    curriculo: UploadFile | None = File(None),
+):
+    curriculo_path = ""
+    if curriculo and curriculo.filename:
+        destino = _curriculos_dir() / f"u{user['id']}_{curriculo.filename}"
+        with open(destino, "wb") as out:
+            shutil.copyfileobj(curriculo.file, out)
+        curriculo_path = str(destino)
+
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO perfis_remetente (usuario_id, nome, email_remetente, smtp_host, "
+            "smtp_port, smtp_senha_enc, assunto, corpo_texto, corpo_html, assinatura, "
+            "curriculo_path, limite_diario) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user["id"], nome, email_remetente, smtp_host, smtp_port,
+             encrypt(smtp_senha), assunto, corpo_texto, corpo_html, assinatura,
+             curriculo_path or None, limite_diario),
+        )
+    return RedirectResponse(url="/perfis", status_code=303)
+
+
+@app.get("/perfis/{pid}/editar", response_class=HTMLResponse)
+def perfil_editar_form(pid: int, request: Request, user: dict = Depends(requer_login), erro: str | None = None):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM perfis_remetente WHERE id = ? AND usuario_id = ?",
+            (pid, user["id"]),
+        ).fetchone()
+    if not row:
+        raise HTTPException(404)
+    return templates.TemplateResponse("perfil_form.html", {
+        "request": request, "user": user, "perfil": dict(row), "erro": erro,
+        "modelo_texto_padrao": MODELO_TEXTO_PADRAO,
+        "modelo_html_padrao": MODELO_HTML_PADRAO,
+    })
+
+
+@app.post("/perfis/{pid}/editar")
+async def perfil_editar_submit(
+    pid: int,
+    user: dict = Depends(requer_login),
+    nome: str = Form(...),
+    email_remetente: str = Form(...),
+    smtp_host: str = Form(...),
+    smtp_port: int = Form(...),
+    smtp_senha: str = Form(""),
+    assunto: str = Form(...),
+    corpo_texto: str = Form(...),
+    corpo_html: str = Form(...),
+    assinatura: str = Form(""),
+    limite_diario: int = Form(200),
+    curriculo: UploadFile | None = File(None),
+):
+    with get_conn() as conn:
+        atual = conn.execute(
+            "SELECT * FROM perfis_remetente WHERE id = ? AND usuario_id = ?",
+            (pid, user["id"]),
+        ).fetchone()
+        if not atual:
+            raise HTTPException(404)
+
+        senha_enc = encrypt(smtp_senha) if smtp_senha else atual["smtp_senha_enc"]
+        curriculo_path = atual["curriculo_path"]
+        if curriculo and curriculo.filename:
+            destino = _curriculos_dir() / f"u{user['id']}_{curriculo.filename}"
+            with open(destino, "wb") as out:
+                shutil.copyfileobj(curriculo.file, out)
+            curriculo_path = str(destino)
+
+        conn.execute(
+            "UPDATE perfis_remetente SET nome = ?, email_remetente = ?, smtp_host = ?, "
+            "smtp_port = ?, smtp_senha_enc = ?, assunto = ?, corpo_texto = ?, "
+            "corpo_html = ?, assinatura = ?, curriculo_path = ?, limite_diario = ? "
+            "WHERE id = ?",
+            (nome, email_remetente, smtp_host, smtp_port, senha_enc, assunto,
+             corpo_texto, corpo_html, assinatura, curriculo_path, limite_diario, pid),
+        )
+    return RedirectResponse(url="/perfis", status_code=303)
+
+
+@app.post("/perfis/{pid}/excluir")
+def perfil_excluir(pid: int, user: dict = Depends(requer_login)):
+    with get_conn() as conn:
+        conn.execute(
+            "DELETE FROM perfis_remetente WHERE id = ? AND usuario_id = ?",
+            (pid, user["id"]),
+        )
+    return RedirectResponse(url="/perfis", status_code=303)
+
+
+# ─── Campanhas ─────────────────────────────────────────────────────────
+
+@app.get("/campanhas", response_class=HTMLResponse)
+def campanhas_form(request: Request, user: dict = Depends(requer_login)):
+    with get_conn() as conn:
+        perfis = [dict(r) for r in conn.execute(
+            "SELECT * FROM perfis_remetente WHERE usuario_id = ? ORDER BY nome",
+            (user["id"],),
+        )]
+    ufs, tribunais = _ufs_e_tribunais()
+    ativas = []
+    for p in perfis:
+        e = mailer.estado(p["id"])
+        if e and not e["terminado"]:
+            ativas.append(e)
+    return templates.TemplateResponse("campanhas.html", {
+        "request": request, "user": user,
+        "perfis": perfis, "ufs": ufs, "tribunais": tribunais,
+        "execucoes_ativas": ativas,
+    })
+
+
+@app.post("/campanhas/disparar")
+def campanhas_disparar(
+    user: dict = Depends(requer_login),
+    perfil_id: int = Form(...),
+    estado: str = Form(""),
+    tribunal: str = Form(""),
+    total_alvo: int = Form(50),
+):
+    with get_conn() as conn:
+        own = conn.execute(
+            "SELECT 1 FROM perfis_remetente WHERE id = ? AND usuario_id = ?",
+            (perfil_id, user["id"]),
+        ).fetchone()
+    if not own:
+        raise HTTPException(403)
+    filtros = {"estado": estado or None, "tribunal": tribunal or None}
+    mailer.disparar(perfil_id, total_alvo, filtros)
+    return RedirectResponse(url=f"/campanhas/acompanhar/{perfil_id}", status_code=303)
+
+
+@app.get("/campanhas/acompanhar/{perfil_id}", response_class=HTMLResponse)
+def campanhas_acompanhar(perfil_id: int, request: Request, user: dict = Depends(requer_login)):
+    return templates.TemplateResponse("campanha_acompanhar.html", {
+        "request": request, "user": user,
+        "perfil_id": perfil_id, "estado": mailer.estado(perfil_id),
+    })
+
+
+@app.get("/campanhas/estado/{perfil_id}", response_class=HTMLResponse)
+def campanhas_estado(perfil_id: int, request: Request, user: dict = Depends(requer_login)):
+    return templates.TemplateResponse("_campanha_estado.html", {
+        "request": request, "user": user,
+        "perfil_id": perfil_id, "estado": mailer.estado(perfil_id),
+    })
+
+
+@app.post("/campanhas/cancelar/{perfil_id}")
+def campanhas_cancelar(perfil_id: int, user: dict = Depends(requer_login)):
+    mailer.cancelar(perfil_id)
+    return RedirectResponse(url=f"/campanhas/acompanhar/{perfil_id}", status_code=303)
+
+
+# ─── Histórico ─────────────────────────────────────────────────────────
+
+@app.get("/historico", response_class=HTMLResponse)
+def historico(
+    request: Request,
+    user: dict = Depends(requer_login),
+    perfil_id: str = "", status: str = "",
+    desde: str = "", ate: str = "", pagina: int = 1,
+):
+    por_pagina = 100
+    pagina = max(1, pagina)
+
+    with get_conn() as conn:
+        perfis = [dict(r) for r in conn.execute(
+            "SELECT id, nome FROM perfis_remetente WHERE usuario_id = ? ORDER BY nome",
+            (user["id"],),
+        )]
+        perfis_ids = [str(p["id"]) for p in perfis]
+
+    where = ["1=1"]
+    args: list = []
+    if perfis_ids:
+        where.append(f"e.perfil_remetente_id IN ({','.join('?' * len(perfis_ids))})")
+        args.extend(perfis_ids)
+    else:
+        where.append("0=1")
+    if perfil_id and perfil_id in perfis_ids:
+        where.append("e.perfil_remetente_id = ?"); args.append(perfil_id)
+    if status in ("ok", "erro"):
+        where.append("e.status = ?"); args.append(status)
+    if desde:
+        where.append("date(e.enviado_em) >= date(?)"); args.append(desde)
+    if ate:
+        where.append("date(e.enviado_em) <= date(?)"); args.append(ate)
+    sql_where = " AND ".join(where)
+
+    with get_conn() as conn:
+        total = conn.execute(f"SELECT COUNT(*) c FROM envios e WHERE {sql_where}", args).fetchone()["c"]
+        contagem = {
+            "ok": conn.execute(
+                f"SELECT COUNT(*) c FROM envios e WHERE {sql_where} AND e.status = 'ok'", args
+            ).fetchone()["c"],
+            "erro": conn.execute(
+                f"SELECT COUNT(*) c FROM envios e WHERE {sql_where} AND e.status = 'erro'", args
+            ).fetchone()["c"],
+        }
+        rows = conn.execute(
+            f"""
+            SELECT e.id, e.enviado_em, e.status, e.erro_mensagem,
+                   c.email, c.cidade, c.comarca, c.estado, c.tribunal,
+                   p.nome AS perfil_nome
+              FROM envios e
+              JOIN contatos c ON c.id = e.contato_id
+              JOIN perfis_remetente p ON p.id = e.perfil_remetente_id
+             WHERE {sql_where}
+             ORDER BY e.id DESC
+             LIMIT ? OFFSET ?
+            """,
+            [*args, por_pagina, (pagina - 1) * por_pagina],
+        ).fetchall()
+
+    filtros = {"perfil_id": perfil_id, "status": status, "desde": desde, "ate": ate}
+
+    def qs_pag(p: int) -> str:
+        return urlencode({**filtros, "pagina": p})
+
+    return templates.TemplateResponse("historico.html", {
+        "request": request, "user": user,
+        "perfis": perfis,
+        "registros": [dict(r) for r in rows], "total": total, "contagem": contagem,
+        "filtros": filtros, "pagina": pagina, "por_pagina": por_pagina,
+        "paginas_total": max(1, (total + por_pagina - 1) // por_pagina),
+        "qs_pag": qs_pag,
+    })
+
+
+# ─── Agendamentos ──────────────────────────────────────────────────────
+
+@app.get("/agendamentos", response_class=HTMLResponse)
+def agendamentos_lista(request: Request, user: dict = Depends(requer_login)):
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM agendamentos ORDER BY id DESC").fetchall()
+    items = []
+    for r in rows:
+        d = dict(r)
+        d["proxima"] = scheduler.proxima_execucao(d["id"]) if d["ativo"] else None
+        items.append(d)
+    return templates.TemplateResponse("agendamentos.html", {
+        "request": request, "user": user, "agendamentos": items,
+    })
+
+
+@app.get("/agendamentos/novo", response_class=HTMLResponse)
+def agendamentos_novo_form(request: Request, user: dict = Depends(requer_login), erro: str | None = None):
+    return templates.TemplateResponse("agendamento_form.html", {
+        "request": request, "user": user, "erro": erro,
+        "scrapers": scraper_registry.listar(),
+    })
+
+
+@app.post("/agendamentos/novo")
+def agendamentos_novo_submit(
+    request: Request,
+    user: dict = Depends(requer_login),
+    tipo: str = Form(...),
+    alvo: str = Form(...),
+    cron: str = Form(...),
+):
+    if len(cron.split()) != 5:
+        return templates.TemplateResponse("agendamento_form.html", {
+            "request": request, "user": user, "scrapers": scraper_registry.listar(),
+            "erro": "Cron precisa ter 5 campos (ex: '0 3 * * *').",
+        })
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO agendamentos (tipo, alvo, cron, ativo) VALUES (?, ?, ?, 1)",
+            (tipo, alvo, cron),
+        )
+    scheduler.recarregar()
+    return RedirectResponse(url="/agendamentos", status_code=303)
+
+
+@app.post("/agendamentos/{aid}/toggle")
+def agendamentos_toggle(aid: int, user: dict = Depends(requer_login)):
+    with get_conn() as conn:
+        conn.execute("UPDATE agendamentos SET ativo = 1 - ativo WHERE id = ?", (aid,))
+    scheduler.recarregar()
+    return RedirectResponse(url="/agendamentos", status_code=303)
+
+
+@app.post("/agendamentos/{aid}/excluir")
+def agendamentos_excluir(aid: int, user: dict = Depends(requer_login)):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM agendamentos WHERE id = ?", (aid,))
+    scheduler.recarregar()
+    return RedirectResponse(url="/agendamentos", status_code=303)
+
+
+# ─── Health ────────────────────────────────────────────────────────────
+
+@app.get("/healthz")
+def healthz():
+    return {"ok": True}

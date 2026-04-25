@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block titulo %}Painel — Peritos{% endblock %}
+{% block conteudo %}
+<h1>Olá, {{ user.nome }}</h1>
+
+<section class="cards">
+  <div class="card">
+    <div class="card-rotulo">Contatos na base</div>
+    <div class="card-valor">{{ total_contatos }}</div>
+  </div>
+  <div class="card">
+    <div class="card-rotulo">E-mails enviados (total)</div>
+    <div class="card-valor">{{ total_envios }}</div>
+  </div>
+  <div class="card">
+    <div class="card-rotulo">E-mails enviados hoje</div>
+    <div class="card-valor">{{ envios_hoje }}</div>
+  </div>
+</section>
+
+<section class="bloco">
+  <h2>Última execução de scraper</h2>
+  {% if ultima_execucao %}
+    <p>
+      <strong>{{ ultima_execucao.tribunal }}</strong>
+      — status: {{ ultima_execucao.status }}
+      {% if ultima_execucao.finalizado_em %}
+        — finalizado em {{ ultima_execucao.finalizado_em }}
+      {% endif %}
+    </p>
+  {% else %}
+    <p class="vazio">Nenhuma execução ainda. Vá em <em>Scrapers</em> e dispare a primeira busca.</p>
+  {% endif %}
+</section>
+
+<section class="bloco aviso-fase">
+  <h2>Fase 1 concluída ✓</h2>
+  <p>Funcionando: login, banco de dados, painel.</p>
+  <p>Próximas fases: scrapers, base de contatos, perfil de remetente, disparo de campanha, histórico.</p>
+</section>
+{% endblock %}

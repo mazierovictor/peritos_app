@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block titulo %}Scrapers — Peritos{% endblock %}
+{% block conteudo %}
+<h1>Scrapers</h1>
+<p class="vazio">Cada botão dispara a busca no respectivo Tribunal. A execução roda em segundo plano — você pode sair desta tela; ao voltar verá o resultado da última execução.</p>
+
+<table class="tabela">
+  <thead>
+    <tr>
+      <th>Sigla</th>
+      <th>Tribunal</th>
+      <th>UF</th>
+      <th>Sistema</th>
+      <th>Última execução</th>
+      <th>Status</th>
+      <th>Novos / Atualizados</th>
+      <th>Ação</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in scrapers %}
+    {% set u = ultimas.get(s.sigla) %}
+    <tr>
+      <td><strong>{{ s.sigla|upper }}</strong></td>
+      <td>{{ s.nome }}{% if s.requer_browser %} <span class="tag">browser</span>{% endif %}{% if s.manual %} <span class="tag tag-aviso">manual</span>{% endif %}</td>
+      <td>{{ s.estado }}</td>
+      <td>{{ s.sistema }}</td>
+      <td>
+        {% if u %}
+          {{ u.finalizado_em or u.iniciado_em }}
+          <a href="/scrapers/run/{{ u.id }}" class="link-pequeno">log</a>
+        {% else %}—{% endif %}
+      </td>
+      <td>
+        {% if u %}
+          <span class="status status-{{ u.status }}">{{ u.status }}</span>
+        {% else %}—{% endif %}
+      </td>
+      <td>{% if u %}{{ u.contatos_novos }} / {{ u.contatos_atualizados }}{% else %}—{% endif %}</td>
+      <td>
+        {% if s.manual %}
+          <button disabled class="btn-secundario" title="Requer CAPTCHA — rode localmente">Indisponível</button>
+        {% else %}
+          <form method="post" action="/scrapers/{{ s.sigla }}/disparar" class="inline">
+            <button type="submit" class="btn-primario">Rodar</button>
+          </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

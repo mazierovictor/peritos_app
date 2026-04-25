@@ -1,0 +1,17 @@
+<div id="estado"
+     {% if estado and not estado.terminado %}hx-get="/campanhas/estado/{{ perfil_id }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  {% if not estado %}
+  <p class="vazio">Sem informação de execução.</p>
+  {% else %}
+  <div class="cards">
+    <div class="card"><div class="card-rotulo">Status</div><div class="card-valor pequeno">
+      {% if estado.terminado %}<span class="status status-ok">terminado</span>
+      {% elif estado.iniciado %}<span class="status status-rodando">enviando</span>
+      {% else %}<span class="status">conectando</span>{% endif %}
+    </div></div>
+    <div class="card"><div class="card-rotulo">Enviados</div><div class="card-valor">{{ estado.enviados }} / {{ estado.total_alvo }}</div></div>
+    <div class="card"><div class="card-rotulo">Erros</div><div class="card-valor">{{ estado.erros }}</div></div>
+  </div>
+  {% if estado.mensagem %}<p><strong>{{ estado.mensagem }}</strong></p>{% endif %}
+  {% endif %}
+</div>

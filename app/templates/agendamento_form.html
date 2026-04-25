@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block titulo %}Novo agendamento — Peritos{% endblock %}
+{% block conteudo %}
+<a href="/agendamentos" class="link-pequeno">← voltar</a>
+<h1>Novo agendamento</h1>
+
+{% if erro %}<div class="alerta-erro">{{ erro }}</div>{% endif %}
+
+<form method="post" action="/agendamentos/novo" class="form-largo">
+  <label>Tipo
+    <select name="tipo" required>
+      <option value="scraper">Scraper</option>
+    </select>
+  </label>
+  <label>Alvo (sigla do scraper)
+    <select name="alvo" required>
+      {% for s in scrapers %}
+      {% if not s.manual %}
+      <option value="{{ s.sigla }}">{{ s.sigla|upper }} — {{ s.nome }}</option>
+      {% endif %}
+      {% endfor %}
+    </select>
+  </label>
+  <label>Expressão cron (5 campos: minuto hora dia mês dia-semana)
+    <input type="text" name="cron" value="0 3 * * *" required>
+    <small class="cinza">Exemplos: <code>0 3 * * *</code> = todo dia às 03:00 / <code>0 3 * * 1</code> = toda segunda 03:00 / <code>30 2 1 * *</code> = dia 1 do mês às 02:30.</small>
+  </label>
+  <button type="submit" class="btn-primario">Criar agendamento</button>
+</form>
+{% endblock %}

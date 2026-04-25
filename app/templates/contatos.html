@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block titulo %}Contatos — Peritos{% endblock %}
+{% block conteudo %}
+<h1>Contatos <small class="cinza">({{ total }})</small></h1>
+
+<form method="get" action="/contatos" class="filtros">
+  <input type="text" name="q" value="{{ filtros.q or '' }}" placeholder="Buscar por email, cidade, comarca, órgão...">
+  <select name="estado">
+    <option value="">UF: todos</option>
+    {% for uf in ufs %}
+    <option value="{{ uf }}" {% if filtros.estado == uf %}selected{% endif %}>{{ uf }}</option>
+    {% endfor %}
+  </select>
+  <select name="tribunal">
+    <option value="">Tribunal: todos</option>
+    {% for tj in tribunais %}
+    <option value="{{ tj }}" {% if filtros.tribunal == tj %}selected{% endif %}>{{ tj|upper }}</option>
+    {% endfor %}
+  </select>
+  <select name="invalido">
+    <option value="">Status: todos</option>
+    <option value="0" {% if filtros.invalido == '0' %}selected{% endif %}>Válidos</option>
+    <option value="1" {% if filtros.invalido == '1' %}selected{% endif %}>Inválidos</option>
+  </select>
+  <button type="submit" class="btn-primario">Filtrar</button>
+  <a href="/contatos" class="btn-secundario">Limpar</a>
+</form>
+
+<table class="tabela">
+  <thead>
+    <tr>
+      <th>Email</th><th>Cidade</th><th>Órgão</th><th>UF</th><th>TJ</th><th>Status</th><th>Ações</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in contatos %}
+    <tr {% if c.invalido %}class="inativa"{% endif %}>
+      <td>{{ c.email }}</td>
+      <td>{{ c.cidade or c.comarca or '—' }}</td>
+      <td>{{ c.orgao or '—' }}</td>
+      <td>{{ c.estado or '—' }}</td>
+      <td>{{ (c.tribunal or '')|upper }}</td>
+      <td>{% if c.invalido %}<span class="status status-erro">inválido</span>{% else %}<span class="status status-ok">válido</span>{% endif %}</td>
+      <td class="acoes">
+        <form method="post" action="/contatos/{{ c.id }}/toggle" class="inline">
+          <button type="submit" class="btn-link">{% if c.invalido %}reativar{% else %}invalidar{% endif %}</button>
+        </form>
+        <form method="post" action="/contatos/{{ c.id }}/excluir" class="inline" onsubmit="return confirm('Excluir contato?');">
+          <button type="submit" class="btn-link erro">excluir</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="7" class="vazio">Nenhum contato encontrado.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if total > por_pagina %}
+<div class="paginacao">
+  {% if pagina > 1 %}<a href="?{{ qs_pag(pagina - 1) }}">← anterior</a>{% endif %}
+  <span>página {{ pagina }} de {{ paginas_total }}</span>
+  {% if pagina < paginas_total %}<a href="?{{ qs_pag(pagina + 1) }}">próxima →</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

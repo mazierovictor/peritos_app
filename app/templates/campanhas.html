@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block titulo %}Campanhas — Peritos{% endblock %}
+{% block conteudo %}
+<h1>Disparar campanha</h1>
+
+{% if not perfis %}
+<div class="alerta-erro">Você precisa <a href="/perfis/novo">criar um perfil de remetente</a> antes de disparar uma campanha.</div>
+{% else %}
+
+<form method="post" action="/campanhas/disparar" class="form-largo">
+  <fieldset>
+    <legend>Quem envia</legend>
+    <label>Perfil de remetente
+      <select name="perfil_id" required>
+        {% for p in perfis %}
+        <option value="{{ p.id }}">{{ p.nome }} &lt;{{ p.email_remetente }}&gt; — limite {{ p.limite_diario }}/dia</option>
+        {% endfor %}
+      </select>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Quem recebe (filtros)</legend>
+    <div class="grade-2">
+      <label>UF
+        <select name="estado">
+          <option value="">— todos —</option>
+          {% for uf in ufs %}<option value="{{ uf }}">{{ uf }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Tribunal
+        <select name="tribunal">
+          <option value="">— todos —</option>
+          {% for tj in tribunais %}<option value="{{ tj }}">{{ tj|upper }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+    <label>Quantidade máxima nesta execução
+      <input type="number" name="total_alvo" value="50" min="1" max="500" required>
+      <small class="cinza">Será limitada ao limite diário do perfil também.</small>
+    </label>
+  </fieldset>
+
+  <button type="submit" class="btn-primario">Iniciar campanha</button>
+</form>
+
+{% if execucoes_ativas %}
+<section class="bloco">
+  <h2>Em andamento</h2>
+  <ul class="lista-limpa">
+    {% for e in execucoes_ativas %}
+    <li>
+      <a href="/campanhas/acompanhar/{{ e.perfil_id }}">
+        Perfil #{{ e.perfil_id }} — {{ e.enviados }}/{{ e.total_alvo }} enviados
+        ({{ e.erros }} erros)
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+{% endif %}
+{% endblock %}
