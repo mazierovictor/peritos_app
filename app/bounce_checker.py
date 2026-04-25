@@ -94,7 +94,7 @@ def _extrair_dsn(msg: Message) -> tuple[str | None, str | None, str | None]:
                     inner = payload[0]
                     mid = inner.get("Message-ID") if hasattr(inner, "get") else None
                     if mid and not orig_msgid:
-                        orig_msgid = _normalizar_msgid(mid)
+                        orig_msgid = _normalizar_msgid(str(mid))
                 else:
                     raw = part.get_payload(decode=True)
                     if isinstance(raw, bytes):
@@ -131,7 +131,7 @@ def _bounce_em(msg: Message) -> str | None:
     if not raw:
         return None
     try:
-        dt = parsedate_to_datetime(raw)
+        dt = parsedate_to_datetime(str(raw))
         return dt.strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         return None
@@ -141,10 +141,12 @@ def _eh_dsn(msg: Message) -> bool:
     ctype = (msg.get_content_type() or "").lower()
     if ctype == "multipart/report":
         return True
-    sender = (msg.get("From") or "").lower()
+    # msg.get() pode retornar Header object para campos MIME-encoded (ex: =?UTF-8?B?...?=).
+    # str() funciona pra Header e pra string normal.
+    sender = str(msg.get("From") or "").lower()
     if "mailer-daemon" in sender or "postmaster" in sender:
         return True
-    subject = (msg.get("Subject") or "").lower()
+    subject = str(msg.get("Subject") or "").lower()
     return any(t in subject for t in ("undeliver", "delivery status", "delivery failure", "returned mail", "não entregue"))
 
 

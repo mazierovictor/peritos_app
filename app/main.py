@@ -764,6 +764,37 @@ def historico(
     })
 
 
+# ─── Detalhe de um envio (timeline) ────────────────────────────────────
+
+@app.get("/historico/envio/{envio_id}", response_class=HTMLResponse)
+def historico_envio(envio_id: int, request: Request, user: dict = Depends(requer_login)):
+    with get_conn() as conn:
+        envio = conn.execute(
+            """
+            SELECT e.*, c.email AS contato_email, c.cidade, c.comarca, c.orgao,
+                   c.estado, c.tribunal, c.sistema, c.invalido,
+                   p.nome AS perfil_nome, p.email_remetente, p.usuario_id
+              FROM envios e
+              JOIN contatos c ON c.id = e.contato_id
+              JOIN perfis_remetente p ON p.id = e.perfil_remetente_id
+             WHERE e.id = ?
+            """,
+            (envio_id,),
+        ).fetchone()
+        if not envio or envio["usuario_id"] != user["id"]:
+            raise HTTPException(404)
+
+        aberturas = [dict(r) for r in conn.execute(
+            "SELECT * FROM aberturas WHERE envio_id = ? ORDER BY aberta_em ASC",
+            (envio_id,),
+        )]
+
+    return templates.TemplateResponse("historico_envio.html", {
+        "request": request, "user": user,
+        "envio": dict(envio), "aberturas": aberturas,
+    })
+
+
 # ─── Histórico por vara (agregado) ─────────────────────────────────────
 
 @app.get("/historico/por-vara", response_class=HTMLResponse)

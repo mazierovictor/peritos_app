@@ -59,8 +59,8 @@
   <tbody>
     {% for r in registros %}
     <tr>
-      <td><span class="cinza" style="font-variant-numeric: tabular-nums">{{ r.enviado_em }}</span></td>
-      <td>{{ r.email }}</td>
+      <td><a href="/historico/envio/{{ r.id }}" style="font-variant-numeric: tabular-nums">{{ r.enviado_em }}</a></td>
+      <td><a href="/historico/envio/{{ r.id }}">{{ r.email }}</a></td>
       <td>
         {% if r.orgao or r.comarca %}<strong>{{ r.orgao or r.comarca }}</strong><br>{% endif %}
         <small class="cinza">{{ (r.cidade or r.comarca or '—') }} / {{ r.estado or '—' }}</small>
