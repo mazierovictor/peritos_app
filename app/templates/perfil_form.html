@@ -40,6 +40,26 @@
   </fieldset>
 
   <fieldset>
+    <legend>Caixa IMAP — verificação de bounces</legend>
+    <div class="grade-2">
+      <label>Host IMAP
+        <input type="text" name="imap_host" value="{{ (perfil and perfil.imap_host) or '' }}" placeholder="(em branco = derivar do SMTP, ex.: imap.gmail.com)">
+      </label>
+      <label>Porta IMAP
+        <input type="number" name="imap_port" value="{{ (perfil and perfil.imap_port) or 993 }}">
+      </label>
+    </div>
+    <label style="display:flex; flex-direction:row; align-items:center; gap:8px; text-transform:none; letter-spacing:0; font-size:13px;">
+      <input type="checkbox" name="imap_ativo" value="1" {% if not perfil or perfil.imap_ativo %}checked{% endif %} style="margin:0">
+      Verificar bounces automaticamente a cada 30 min (usa a mesma senha SMTP)
+    </label>
+    <small class="cinza">
+      DSNs (mensagens "Undelivered Mail Returned to Sender") são lidas, parseadas e cruzadas com o histórico.
+      Códigos <strong>5.x.x</strong> marcam o contato como inválido; <strong>4.x.x</strong> apenas registram (falha temporária).
+    </small>
+  </fieldset>
+
+  <fieldset>
     <legend>Modelo de e-mail</legend>
     <label>Assunto
       <input type="text" name="assunto" value="{{ (perfil and perfil.assunto) or 'Apresentação e Disponibilidade para Atuação como Perito Contábil' }}" required>

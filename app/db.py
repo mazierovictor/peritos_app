@@ -60,10 +60,26 @@ CREATE TABLE IF NOT EXISTS envios (
     perfil_remetente_id INTEGER NOT NULL REFERENCES perfis_remetente(id) ON DELETE CASCADE,
     enviado_em          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     status              TEXT NOT NULL,
-    erro_mensagem       TEXT
+    erro_mensagem       TEXT,
+    message_id          TEXT,
+    bounce_em           TIMESTAMP,
+    bounce_codigo       TEXT,
+    bounce_diagnostico  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_envios_contato ON envios(contato_id);
 CREATE INDEX IF NOT EXISTS idx_envios_data ON envios(enviado_em);
+CREATE INDEX IF NOT EXISTS idx_envios_message_id ON envios(message_id);
+
+CREATE TABLE IF NOT EXISTS bounce_runs (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    perfil_id         INTEGER NOT NULL REFERENCES perfis_remetente(id) ON DELETE CASCADE,
+    iniciado_em       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    finalizado_em     TIMESTAMP,
+    status            TEXT NOT NULL DEFAULT 'rodando',
+    bounces_novos     INTEGER NOT NULL DEFAULT 0,
+    mensagens_lidas   INTEGER NOT NULL DEFAULT 0,
+    erro              TEXT
+);
 
 CREATE TABLE IF NOT EXISTS scraper_runs (
     id                    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,6 +129,29 @@ def _migrar() -> None:
         for col, ddl in novas:
             if col not in cols:
                 conn.execute(f"ALTER TABLE agendamentos ADD COLUMN {col} {ddl}")
+
+        cols_envios = {r["name"] for r in conn.execute("PRAGMA table_info(envios)")}
+        novas_envios = [
+            ("message_id",         "TEXT"),
+            ("bounce_em",          "TIMESTAMP"),
+            ("bounce_codigo",      "TEXT"),
+            ("bounce_diagnostico", "TEXT"),
+        ]
+        for col, ddl in novas_envios:
+            if col not in cols_envios:
+                conn.execute(f"ALTER TABLE envios ADD COLUMN {col} {ddl}")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_envios_message_id ON envios(message_id)")
+
+        cols_perfis = {r["name"] for r in conn.execute("PRAGMA table_info(perfis_remetente)")}
+        novas_perfis = [
+            ("imap_host",        "TEXT"),
+            ("imap_port",        "INTEGER NOT NULL DEFAULT 993"),
+            ("imap_ativo",       "INTEGER NOT NULL DEFAULT 1"),
+            ("imap_ultimo_uid",  "INTEGER NOT NULL DEFAULT 0"),
+        ]
+        for col, ddl in novas_perfis:
+            if col not in cols_perfis:
+                conn.execute(f"ALTER TABLE perfis_remetente ADD COLUMN {col} {ddl}")
 
 
 def db_path() -> Path:

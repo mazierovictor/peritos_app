@@ -13,7 +13,7 @@
 </header>
 
 <table class="tabela espacada">
-  <thead><tr><th>Nome</th><th>E-mail</th><th>Limite diário</th><th>Currículo</th><th>Ações</th></tr></thead>
+  <thead><tr><th>Nome</th><th>E-mail</th><th>Limite diário</th><th>Currículo</th><th>Bounces (IMAP)</th><th>Ações</th></tr></thead>
   <tbody>
     {% for p in perfis %}
     <tr>
@@ -21,7 +21,28 @@
       <td>{{ p.email_remetente }}</td>
       <td><span style="font-variant-numeric: tabular-nums">{{ p.limite_diario }}/dia</span></td>
       <td>{% if p.curriculo_path %}<span class="status status-ok">presente</span>{% else %}—{% endif %}</td>
+      <td>
+        {% if not p.imap_ativo %}
+          <small class="cinza">desativado</small>
+        {% elif p.ultima_bounce_run %}
+          {% set r = p.ultima_bounce_run %}
+          {% if r.status == 'ok' %}
+            <small><span class="status status-ok">ok</span> {{ r.bounces_novos }} bounce(s) · {{ r.finalizado_em or '...' }}</small>
+          {% elif r.status == 'rodando' %}
+            <small class="cinza">rodando…</small>
+          {% else %}
+            <small><span class="status status-erro">{{ r.status }}</span> <span class="cinza">{{ (r.erro or '')[:60] }}</span></small>
+          {% endif %}
+        {% else %}
+          <small class="cinza">aguardando 1ª execução</small>
+        {% endif %}
+      </td>
       <td class="acoes">
+        {% if p.imap_ativo %}
+        <form method="post" action="/perfis/{{ p.id }}/verificar-bounces" class="inline">
+          <button type="submit" class="btn-link">verificar agora</button>
+        </form>
+        {% endif %}
         <a href="/perfis/{{ p.id }}/editar" class="btn-link">editar</a>
         <form method="post" action="/perfis/{{ p.id }}/excluir" class="inline" onsubmit="return confirm('Excluir perfil?');">
           <button type="submit" class="btn-link erro">excluir</button>
@@ -29,7 +50,7 @@
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="5" class="vazio" style="padding:32px; text-align:center">Nenhum perfil cadastrado ainda.</td></tr>
+    <tr><td colspan="6" class="vazio" style="padding:32px; text-align:center">Nenhum perfil cadastrado ainda.</td></tr>
     {% endfor %}
   </tbody>
 </table>

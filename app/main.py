@@ -36,7 +36,7 @@ from .auth import (
 from .config import settings
 from .crypto import encrypt
 from .db import get_conn, init_db
-from . import mailer, scheduler
+from . import bounce_checker, mailer, scheduler
 from .scrapers import configs as scraper_configs
 from .scrapers import registry as scraper_registry
 from .scrapers import runner as scraper_runner
@@ -47,7 +47,7 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 app = FastAPI(title="Peritos — Painel")
 
-app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, https_only=False)
+app.add_middleware(SessionMiddleware, secret_key=settings.resolve_session_secret(), https_only=False)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
@@ -465,8 +465,13 @@ def perfis_lista(request: Request, user: dict = Depends(requer_login)):
             "SELECT * FROM perfis_remetente WHERE usuario_id = ? ORDER BY id DESC",
             (user["id"],),
         ).fetchall()
+    perfis = []
+    for r in rows:
+        d = dict(r)
+        d["ultima_bounce_run"] = bounce_checker.ultima_run(d["id"])
+        perfis.append(d)
     return templates.TemplateResponse("perfis.html", {
-        "request": request, "user": user, "perfis": [dict(r) for r in rows],
+        "request": request, "user": user, "perfis": perfis,
     })
 
 
@@ -493,6 +498,9 @@ async def perfil_novo_submit(
     corpo_html: str = Form(...),
     assinatura: str = Form(""),
     limite_diario: int = Form(200),
+    imap_host: str = Form(""),
+    imap_port: int = Form(993),
+    imap_ativo: int = Form(0),
     curriculo: UploadFile | None = File(None),
 ):
     curriculo_path = ""
@@ -506,10 +514,12 @@ async def perfil_novo_submit(
         conn.execute(
             "INSERT INTO perfis_remetente (usuario_id, nome, email_remetente, smtp_host, "
             "smtp_port, smtp_senha_enc, assunto, corpo_texto, corpo_html, assinatura, "
-            "curriculo_path, limite_diario) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "curriculo_path, limite_diario, imap_host, imap_port, imap_ativo) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (user["id"], nome, email_remetente, smtp_host, smtp_port,
              encrypt(smtp_senha), assunto, corpo_texto, corpo_html, assinatura,
-             curriculo_path or None, limite_diario),
+             curriculo_path or None, limite_diario,
+             imap_host.strip() or None, imap_port, 1 if imap_ativo else 0),
         )
     return RedirectResponse(url="/perfis", status_code=303)
 
@@ -544,6 +554,9 @@ async def perfil_editar_submit(
     corpo_html: str = Form(...),
     assinatura: str = Form(""),
     limite_diario: int = Form(200),
+    imap_host: str = Form(""),
+    imap_port: int = Form(993),
+    imap_ativo: int = Form(0),
     curriculo: UploadFile | None = File(None),
 ):
     with get_conn() as conn:
@@ -565,10 +578,12 @@ async def perfil_editar_submit(
         conn.execute(
             "UPDATE perfis_remetente SET nome = ?, email_remetente = ?, smtp_host = ?, "
             "smtp_port = ?, smtp_senha_enc = ?, assunto = ?, corpo_texto = ?, "
-            "corpo_html = ?, assinatura = ?, curriculo_path = ?, limite_diario = ? "
+            "corpo_html = ?, assinatura = ?, curriculo_path = ?, limite_diario = ?, "
+            "imap_host = ?, imap_port = ?, imap_ativo = ? "
             "WHERE id = ?",
             (nome, email_remetente, smtp_host, smtp_port, senha_enc, assunto,
-             corpo_texto, corpo_html, assinatura, curriculo_path, limite_diario, pid),
+             corpo_texto, corpo_html, assinatura, curriculo_path, limite_diario,
+             imap_host.strip() or None, imap_port, 1 if imap_ativo else 0, pid),
         )
     return RedirectResponse(url="/perfis", status_code=303)
 
@@ -580,6 +595,19 @@ def perfil_excluir(pid: int, user: dict = Depends(requer_login)):
             "DELETE FROM perfis_remetente WHERE id = ? AND usuario_id = ?",
             (pid, user["id"]),
         )
+    return RedirectResponse(url="/perfis", status_code=303)
+
+
+@app.post("/perfis/{pid}/verificar-bounces")
+def perfil_verificar_bounces(pid: int, user: dict = Depends(requer_login)):
+    with get_conn() as conn:
+        own = conn.execute(
+            "SELECT 1 FROM perfis_remetente WHERE id = ? AND usuario_id = ?",
+            (pid, user["id"]),
+        ).fetchone()
+    if not own:
+        raise HTTPException(403)
+    bounce_checker.verificar(pid)
     return RedirectResponse(url="/perfis", status_code=303)
 
 
@@ -675,7 +703,7 @@ def historico(
         where.append("0=1")
     if perfil_id and perfil_id in perfis_ids:
         where.append("e.perfil_remetente_id = ?"); args.append(perfil_id)
-    if status in ("ok", "erro"):
+    if status in ("ok", "erro", "bounce", "bounce_soft"):
         where.append("e.status = ?"); args.append(status)
     if desde:
         where.append("date(e.enviado_em) >= date(?)"); args.append(desde)
@@ -692,10 +720,17 @@ def historico(
             "erro": conn.execute(
                 f"SELECT COUNT(*) c FROM envios e WHERE {sql_where} AND e.status = 'erro'", args
             ).fetchone()["c"],
+            "bounce": conn.execute(
+                f"SELECT COUNT(*) c FROM envios e WHERE {sql_where} AND e.status = 'bounce'", args
+            ).fetchone()["c"],
+            "bounce_soft": conn.execute(
+                f"SELECT COUNT(*) c FROM envios e WHERE {sql_where} AND e.status = 'bounce_soft'", args
+            ).fetchone()["c"],
         }
         rows = conn.execute(
             f"""
             SELECT e.id, e.enviado_em, e.status, e.erro_mensagem,
+                   e.bounce_em, e.bounce_codigo, e.bounce_diagnostico,
                    c.email, c.cidade, c.comarca, c.estado, c.tribunal,
                    p.nome AS perfil_nome
               FROM envios e

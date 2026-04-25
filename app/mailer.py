@@ -120,12 +120,15 @@ def _ja_enviado(contato_id: int, perfil_id: int) -> bool:
     return row is not None
 
 
-def _registrar_envio(contato_id: int, perfil_id: int, status: str, erro: str | None) -> None:
+def _registrar_envio(
+    contato_id: int, perfil_id: int, status: str,
+    erro: str | None, message_id: str | None = None,
+) -> None:
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO envios (contato_id, perfil_remetente_id, status, erro_mensagem) "
-            "VALUES (?, ?, ?, ?)",
-            (contato_id, perfil_id, status, erro),
+            "INSERT INTO envios (contato_id, perfil_remetente_id, status, erro_mensagem, message_id) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (contato_id, perfil_id, status, erro, message_id),
         )
 
 
@@ -176,16 +179,18 @@ def _selecionar_contatos(filtros: dict, limite: int, perfil_id: int) -> list[dic
     return [dict(r) for r in rows]
 
 
-def _enviar_um(server: smtplib.SMTP, perfil: dict, contato: dict) -> None:
+def _enviar_um(server: smtplib.SMTP, perfil: dict, contato: dict) -> str:
+    """Envia o e-mail e retorna o Message-ID gerado, para correlação com bounces."""
     msg = MIMEMultipart("mixed")
     sender = f"{perfil['nome']} <{perfil['email_remetente']}>"
     remetente_email = perfil["email_remetente"]
 
+    message_id = make_msgid(domain=remetente_email.split("@")[-1])
     msg["From"] = sender
     msg["To"] = contato["email"]
     msg["Subject"] = _aplicar_template(perfil["assunto"], contato, perfil)
     msg["Date"] = formatdate(localtime=True)
-    msg["Message-ID"] = make_msgid(domain=remetente_email.split("@")[-1])
+    msg["Message-ID"] = message_id
     msg["Reply-To"] = sender
 
     # Cabeçalhos de boa-cidadania anti-spam exigidos por Gmail/Yahoo (desde 2024):
@@ -213,6 +218,7 @@ def _enviar_um(server: smtplib.SMTP, perfil: dict, contato: dict) -> None:
                 msg.attach(part)
 
     server.sendmail(perfil["email_remetente"], contato["email"], msg.as_string())
+    return message_id
 
 
 def _loop_envio(estado_obj: CampanhaEstado, filtros: dict) -> None:
@@ -263,8 +269,8 @@ def _loop_envio(estado_obj: CampanhaEstado, filtros: dict) -> None:
                 continue
 
             try:
-                _enviar_um(server, perfil, contato)
-                _registrar_envio(contato["id"], perfil["id"], "ok", None)
+                msg_id = _enviar_um(server, perfil, contato)
+                _registrar_envio(contato["id"], perfil["id"], "ok", None, msg_id)
                 estado_obj.enviados += 1
             except smtplib.SMTPRecipientsRefused as e:
                 msg_erro = str(e)[:500]

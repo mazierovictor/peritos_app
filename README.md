@@ -18,6 +18,7 @@ Construída em **FastAPI + SQLite + HTMX**, pensada para rodar em um único cont
 - ✉️ **Perfis de remetente** independentes (cada um com seu Gmail, currículo PDF, assunto e corpo do e-mail editáveis)
 - 📤 **Campanhas de envio** com filtros, limite diário, pausa entre envios e cancelamento em andamento
 - 📊 **Histórico** de envios com filtros por perfil/status/data
+- 📬 **Verificação de bounces (IMAP)** — lê DSNs na caixa do remetente, casa pelo `Message-ID` e marca contatos com bounce permanente (5.x.x) como inválidos automaticamente
 - ⏰ **Agendamentos cron** para rodar scrapers automaticamente
 
 \* TJSC tem CAPTCHA manual e fica indisponível na versão web.
@@ -55,8 +56,6 @@ Isto preserva o banco SQLite e os PDFs de currículo entre redeploys.
 Em **Environment**, defina pelo menos:
 
 ```
-SESSION_SECRET=<rode uma vez: python -c "import secrets; print(secrets.token_urlsafe(48))">
-FERNET_KEY=<rode uma vez: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())">
 DATA_DIR=/data
 ADMIN_EMAIL=victor@exemplo.com
 ADMIN_NOME=Victor Maziero
@@ -66,9 +65,17 @@ USER2_NOME=Tati
 USER2_SENHA=<senha forte>
 ```
 
+`SESSION_SECRET` e `FERNET_KEY` são **opcionais** — se você não definir,
+o app gera valores fortes no primeiro start e os persiste em
+`/data/.session_secret` e `/data/.fernet_key`. Como o `/data` é volume,
+as chaves sobrevivem a redeploys. Só defina manualmente se quiser
+controlar a chave (ex.: replicar em outra instância).
+
 > **Importante**: depois do primeiro login, troque as senhas iniciais por outras (em uma versão futura — por ora elas valem só pra primeiro acesso).
 
-> **Não perca a `FERNET_KEY`**. Ela criptografa as senhas SMTP no banco. Se mudar, os perfis ficam inutilizáveis.
+> **Não apague o volume `/data`**. Ele guarda o banco SQLite, currículos
+> e a `FERNET_KEY` que criptografa as senhas SMTP. Se a chave mudar,
+> os perfis cadastrados ficam inutilizáveis.
 
 ### 5. Domínio
 
@@ -160,6 +167,24 @@ Pra fazer backup, basta copiar o conteúdo do volume `/data` (SQLite + currícul
 tar czf /tmp/peritos-backup.tgz /data
 # baixe o /tmp/peritos-backup.tgz pra sua máquina
 ```
+
+---
+
+## Verificação de bounces (IMAP)
+
+Cada perfil pode ter o IMAP ativado (checkbox no formulário). Quando ativo:
+
+- A cada **30 min** (e na inicialização do app), o sistema conecta via IMAP na caixa do remetente usando a mesma senha SMTP cadastrada
+- Busca incremental por UID (não reprocessa mensagens já vistas; 1ª execução limita aos últimos 30 dias)
+- Detecta DSNs (`multipart/report`, `MAILER-DAEMON`, etc.), extrai `Status: X.Y.Z` e o `Message-ID` original
+- Casa com o envio em `envios.message_id` e atualiza:
+  - **5.x.x** (hard bounce) → status `bounce` + `contatos.invalido = 1` (não tenta de novo)
+  - **4.x.x** (soft bounce) → status `bounce_soft` (preserva o contato)
+- Marca a DSN como lida (`\Seen`) para não reprocessar
+- O painel **/perfis** mostra o status da última run e tem botão "verificar agora"
+- O **/historico** ganha filtros e contadores separados de `bounce`/`bounce_soft`
+
+**Host IMAP**: pode ser deixado em branco no perfil — o sistema deriva trocando `smtp.` por `imap.` (Gmail/Yahoo) ou usando `outlook.office365.com` para Outlook.
 
 ---
 

@@ -22,6 +22,7 @@ from typing import Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from .db import get_conn
 
@@ -136,6 +137,33 @@ def recarregar() -> None:
         _registrar_no_scheduler(dict(r))
 
 
+def _job_bounce_checker() -> None:
+    """Roda a cada 30 min: verifica DSNs em todos os perfis com imap_ativo=1."""
+    from . import bounce_checker
+    try:
+        bounce_checker.verificar_todos()
+    except Exception:
+        pass
+
+
+def _registrar_jobs_internos() -> None:
+    """Jobs fixos do sistema, não vinculados à tabela agendamentos."""
+    assert _scheduler is not None
+    try:
+        _scheduler.add_job(
+            _job_bounce_checker,
+            trigger=IntervalTrigger(minutes=30, timezone=TZ),
+            id="sys-bounce-checker",
+            name="Verificação de bounces (IMAP)",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+            next_run_time=datetime.now(),
+        )
+    except Exception:
+        pass
+
+
 def iniciar() -> None:
     global _scheduler
     if _scheduler is not None:
@@ -143,6 +171,7 @@ def iniciar() -> None:
     _scheduler = BackgroundScheduler(timezone=TZ)
     _scheduler.start()
     recarregar()
+    _registrar_jobs_internos()
 
 
 def parar() -> None:
