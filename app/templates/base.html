@@ -86,12 +86,13 @@
 
 <main class="shell-main">
   <div class="pagina">
-    {% block conteudo %}{% endblock %}
+{% endif %}
+
+{% block conteudo %}{% endblock %}
+
+{% if user %}
   </div>
 </main>
-
-{% else %}
-  {% block conteudo %}{% endblock %}
 {% endif %}
 
 </body>
