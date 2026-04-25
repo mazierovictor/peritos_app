@@ -51,12 +51,19 @@
       <td>{{ s.sistema }}</td>
       <td>
         {% if u %}
-          <span class="cinza">{{ u.finalizado_em or u.iniciado_em }}</span>
-          &nbsp;<a href="/scrapers/run/{{ u.id }}" class="btn-link">log</a>
+          <a href="/scrapers/run/{{ u.id }}" class="cinza" style="text-decoration:none">
+            {{ u.finalizado_em or u.iniciado_em }}
+          </a>
         {% else %}—{% endif %}
       </td>
       <td>
-        {% if u %}<span class="status status-{{ u.status }}">{{ u.status }}</span>{% else %}—{% endif %}
+        {% if u %}
+          <a href="/scrapers/run/{{ u.id }}" class="status status-{{ u.status }}"
+             style="text-decoration:none"
+             title="{% if u.status == 'rodando' %}Acompanhar log em tempo real{% else %}Ver log da execução{% endif %}">
+            {{ u.status }}
+          </a>
+        {% else %}—{% endif %}
       </td>
       <td>{% if u %}<span style="font-variant-numeric: tabular-nums">{{ u.contatos_novos }} / {{ u.contatos_atualizados }}</span>{% else %}—{% endif %}</td>
       <td class="acoes">
