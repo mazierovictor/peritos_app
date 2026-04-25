@@ -74,7 +74,8 @@ CREATE TABLE IF NOT EXISTS aberturas (
     envio_id    INTEGER NOT NULL REFERENCES envios(id) ON DELETE CASCADE,
     aberta_em   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     ip          TEXT,
-    user_agent  TEXT
+    user_agent  TEXT,
+    tipo        TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_aberturas_envio ON aberturas(envio_id);
 
@@ -151,6 +152,23 @@ def _migrar() -> None:
                 conn.execute(f"ALTER TABLE envios ADD COLUMN {col} {ddl}")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_envios_message_id ON envios(message_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_envios_tracking_token ON envios(tracking_token)")
+
+        cols_aberturas = {r["name"] for r in conn.execute("PRAGMA table_info(aberturas)")}
+        if "tipo" not in cols_aberturas:
+            conn.execute("ALTER TABLE aberturas ADD COLUMN tipo TEXT")
+        # Re-classifica registros antigos (sem tipo) com base no user_agent
+        conn.execute("""
+            UPDATE aberturas SET tipo = CASE
+              WHEN user_agent LIKE '%GoogleImageProxy%'   THEN 'proxy'
+              WHEN user_agent LIKE '%YahooMailProxy%'     THEN 'proxy'
+              WHEN user_agent LIKE '%BingPreview%'        THEN 'proxy'
+              WHEN user_agent LIKE '%MicrosoftPreview%'   THEN 'proxy'
+              WHEN user_agent LIKE '%SkypeUriPreview%'    THEN 'proxy'
+              WHEN user_agent LIKE '%OutlookSafe%'        THEN 'proxy'
+              ELSE 'cliente'
+            END
+            WHERE tipo IS NULL
+        """)
 
         cols_perfis = {r["name"] for r in conn.execute("PRAGMA table_info(perfis_remetente)")}
         novas_perfis = [

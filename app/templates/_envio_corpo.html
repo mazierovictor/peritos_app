@@ -32,8 +32,15 @@
       </div>
     </div>
     <div class="card">
-      <div class="card-rotulo">Aberturas</div>
-      <div class="card-valor">{{ aberturas|length }}</div>
+      <div class="card-rotulo">Entrega</div>
+      <div class="card-valor" style="font-size:18px">
+        {% if entrega %}<span class="status status-ok">📬 confirmada</span>
+        {% else %}<small class="cinza">aguardando</small>{% endif %}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-rotulo">Aberturas reais</div>
+      <div class="card-valor">{{ aberturas|length }}<span class="cinza" style="font-size:12px"> (sem proxy)</span></div>
     </div>
     <div class="card">
       <div class="card-rotulo">Perfil remetente</div>
@@ -111,17 +118,33 @@
       {% endif %}
 
       {% if envio.status == 'ok' %}
-        <li class="timeline-item presumido">
-          <div class="timeline-icon">📬</div>
-          <div class="timeline-conteudo">
-            <div class="timeline-titulo">Entregue na caixa do destinatário <small>(presumido)</small></div>
-            <div class="timeline-data">—</div>
-            <div class="timeline-detalhe cinza">
-              Não temos confirmação direta de entrega. Como não chegou nenhuma DSN de bounce até agora,
-              assumimos que o servidor do destinatário aceitou a mensagem.
+        {% if entrega %}
+          <li class="timeline-item ok">
+            <div class="timeline-icon">📬</div>
+            <div class="timeline-conteudo">
+              <div class="timeline-titulo">Entregue na caixa do destinatário <small class="cinza">(confirmado pelo proxy do provedor)</small></div>
+              <div class="timeline-data">{{ entrega.quando | local_dt('%d/%m/%Y %H:%M:%S') }}</div>
+              <div class="timeline-detalhe cinza">
+                O proxy do servidor de email
+                ({% if 'GoogleImageProxy' in (entrega.user_agent or '') %}<strong>Gmail</strong>{% elif 'YahooMailProxy' in (entrega.user_agent or '') %}<strong>Yahoo</strong>{% elif 'BingPreview' in (entrega.user_agent or '') %}<strong>Microsoft</strong>{% else %}provedor{% endif %})
+                pré-baixou a imagem do pixel — sinal de que o e-mail chegou na caixa do destinatário.<br>
+                <small>UA: {{ (entrega.user_agent or '')[:140] }}</small>
+              </div>
             </div>
-          </div>
-        </li>
+          </li>
+        {% else %}
+          <li class="timeline-item presumido">
+            <div class="timeline-icon">📬</div>
+            <div class="timeline-conteudo">
+              <div class="timeline-titulo">Entregue na caixa do destinatário <small>(presumido)</small></div>
+              <div class="timeline-data">—</div>
+              <div class="timeline-detalhe cinza">
+                Sem hit de proxy registrado e sem bounce. Provedor pode não usar pré-fetch de imagens
+                (ex.: Outlook desktop, e-mails corporativos), ou o pixel ainda não foi baixado.
+              </div>
+            </div>
+          </li>
+        {% endif %}
       {% endif %}
 
       {% for a in aberturas %}
@@ -136,7 +159,7 @@
               {% if a.ip %}IP: <code>{{ a.ip }}</code>{% endif %}
               {% if a.user_agent %}<br><small>UA: {{ a.user_agent[:140] }}</small>{% endif %}
               {% if loop.first %}
-                <br><br><small>⚠️ Gmail/Apple Mail proxy as imagens — o IP acima pode ser do servidor de proxy do provedor, não do destinatário real. A abertura também pode ter sido disparada por pré-fetch antiviral.</small>
+                <br><br><small>✓ Hit de cliente real (não é proxy/pré-fetch). Provavelmente o destinatário abriu o e-mail no app/web.</small>
               {% endif %}
             </div>
           </div>

@@ -15,6 +15,7 @@ Estrutura das rotas:
 """
 from __future__ import annotations
 
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -813,7 +814,8 @@ def historico(
             ).fetchone()["c"],
             "abertos": conn.execute(
                 f"SELECT COUNT(DISTINCT a.envio_id) c FROM envios e "
-                f"JOIN aberturas a ON a.envio_id = e.id WHERE {sql_where}", args
+                f"JOIN aberturas a ON a.envio_id = e.id "
+                f"WHERE {sql_where} AND a.tipo = 'cliente'", args
             ).fetchone()["c"],
         }
         rows = conn.execute(
@@ -822,8 +824,9 @@ def historico(
                    e.bounce_em, e.bounce_codigo, e.bounce_diagnostico,
                    c.email, c.cidade, c.comarca, c.orgao, c.estado, c.tribunal,
                    p.nome AS perfil_nome,
-                   (SELECT COUNT(*) FROM aberturas a WHERE a.envio_id = e.id) AS aberturas,
-                   (SELECT MIN(aberta_em) FROM aberturas a WHERE a.envio_id = e.id) AS primeira_abertura
+                   (SELECT COUNT(*) FROM aberturas a WHERE a.envio_id = e.id AND a.tipo = 'cliente') AS aberturas,
+                   (SELECT MIN(aberta_em) FROM aberturas a WHERE a.envio_id = e.id AND a.tipo = 'cliente') AS primeira_abertura,
+                   (SELECT MIN(aberta_em) FROM aberturas a WHERE a.envio_id = e.id AND a.tipo = 'proxy')   AS entrega_em
               FROM envios e
               JOIN contatos c ON c.id = e.contato_id
               JOIN perfis_remetente p ON p.id = e.perfil_remetente_id
@@ -868,10 +871,19 @@ def _ctx_envio(envio_id: int, user: dict, request: Request) -> dict:
         ).fetchone()
         if not envio or envio["usuario_id"] != user["id"]:
             raise HTTPException(404)
+        # Aberturas reais (cliente) — leituras do destinatário
         aberturas = [dict(r) for r in conn.execute(
-            "SELECT * FROM aberturas WHERE envio_id = ? ORDER BY aberta_em ASC",
+            "SELECT * FROM aberturas WHERE envio_id = ? AND tipo = 'cliente' "
+            "ORDER BY aberta_em ASC",
             (envio_id,),
         )]
+        # Entrega = primeiro hit do proxy do provedor (Gmail/Yahoo/MS)
+        entrega = conn.execute(
+            "SELECT MIN(aberta_em) AS quando, ip, user_agent FROM aberturas "
+            "WHERE envio_id = ? AND tipo = 'proxy'",
+            (envio_id,),
+        ).fetchone()
+        entrega = dict(entrega) if entrega and entrega["quando"] else None
 
     # Polling sempre ativo enquanto status indica que pode mudar.
     # O usuário tem botão "pausar" se quiser parar.
@@ -879,7 +891,7 @@ def _ctx_envio(envio_id: int, user: dict, request: Request) -> dict:
 
     return {
         "request": request, "user": user,
-        "envio": dict(envio), "aberturas": aberturas,
+        "envio": dict(envio), "aberturas": aberturas, "entrega": entrega,
         "poll_ativo": poll_ativo,
         "tracking_url": (settings.tracking_base_url or "").rstrip("/"),
     }
@@ -957,7 +969,7 @@ def historico_por_vara(
         MAX(a.aberta_em)                       AS ultima_abertura
       FROM envios e
       JOIN contatos c ON c.id = e.contato_id
-      LEFT JOIN aberturas a ON a.envio_id = e.id
+      LEFT JOIN aberturas a ON a.envio_id = e.id AND a.tipo = 'cliente'
      WHERE {sql_where}
      GROUP BY c.tribunal, c.estado, c.cidade, c.comarca, c.orgao
      ORDER BY {order_col}
@@ -985,7 +997,7 @@ def historico_por_vara(
             SUM(CASE WHEN e.status = 'bounce' THEN 1 ELSE 0 END) AS bounces
           FROM envios e
           JOIN contatos c ON c.id = e.contato_id
-          LEFT JOIN aberturas a ON a.envio_id = e.id
+          LEFT JOIN aberturas a ON a.envio_id = e.id AND a.tipo = 'cliente'
          WHERE {sql_where}
         """, args).fetchone()
 
@@ -1182,11 +1194,27 @@ _PIXEL_PNG = bytes.fromhex(
 )
 
 
+# User-Agents conhecidos de proxies / pré-fetch — esses hits são "entrega",
+# não leitura real. Quando o e-mail chega na caixa, Gmail/Yahoo/etc baixam
+# todas as imagens em servidor próprio antes do destinatário abrir.
+_PROXY_UA_RE = re.compile(
+    r"(GoogleImageProxy|YahooMailProxy|BingPreview|MicrosoftPreview|"
+    r"SkypeUriPreview|OutlookSafe)",
+    re.IGNORECASE,
+)
+
+
+def _classificar_hit(user_agent: str) -> str:
+    """Retorna 'proxy' (entrega via pré-fetch) ou 'cliente' (leitura real)."""
+    return "proxy" if _PROXY_UA_RE.search(user_agent or "") else "cliente"
+
+
 @app.get("/o/{token}.png")
 def tracking_pixel(token: str, request: Request):
     """Registra abertura do email; retorna sempre PNG 1x1 transparente."""
     ip = request.client.host if request.client else "?"
-    ua = request.headers.get("user-agent", "")[:120]
+    ua = request.headers.get("user-agent", "")[:300]
+    tipo = _classificar_hit(ua)
     if token and len(token) <= 64:
         try:
             with get_conn() as conn:
@@ -1195,10 +1223,10 @@ def tracking_pixel(token: str, request: Request):
                 ).fetchone()
                 if row:
                     conn.execute(
-                        "INSERT INTO aberturas (envio_id, ip, user_agent) VALUES (?, ?, ?)",
-                        (row["id"], ip, ua[:300]),
+                        "INSERT INTO aberturas (envio_id, ip, user_agent, tipo) VALUES (?, ?, ?, ?)",
+                        (row["id"], ip, ua, tipo),
                     )
-                    print(f"[tracking] OK envio={row['id']} token={token} ip={ip} ua={ua!r}", flush=True)
+                    print(f"[tracking] OK envio={row['id']} tipo={tipo} ip={ip} ua={ua[:80]!r}", flush=True)
                 else:
                     print(f"[tracking] TOKEN_NAO_ENCONTRADO token={token} ip={ip}", flush=True)
         except Exception as e:
