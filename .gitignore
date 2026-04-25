@@ -5,6 +5,8 @@ __pycache__/
 venv/
 .env
 data/
+data.zip
+*.zip
 *.db
 *.db-journal
 .DS_Store
