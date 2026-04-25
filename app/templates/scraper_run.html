@@ -10,27 +10,5 @@
   </div>
 </header>
 
-<section class="cards">
-  <div class="card">
-    <div class="card-rotulo">Status</div>
-    <div class="card-valor pequeno"><span class="status status-{{ run.status }}">{{ run.status }}</span></div>
-  </div>
-  <div class="card">
-    <div class="card-rotulo">Iniciado</div>
-    <div class="card-valor pequeno">{{ run.iniciado_em | local_dt('%d/%m/%Y %H:%M:%S') }}</div>
-  </div>
-  <div class="card">
-    <div class="card-rotulo">Finalizado</div>
-    <div class="card-valor pequeno">{{ run.finalizado_em | local_dt('%d/%m/%Y %H:%M:%S') }}</div>
-  </div>
-  <div class="card">
-    <div class="card-rotulo">Novos / Atualizados</div>
-    <div class="card-valor">{{ run.contatos_novos }}<span class="cinza" style="font-size:18px"> / {{ run.contatos_atualizados }}</span></div>
-  </div>
-</section>
-
-<section class="bloco" {% if run.status == 'rodando' %}hx-get="/scrapers/run/{{ run.id }}/log" hx-trigger="every 2s" hx-target="#log"{% endif %}>
-  <h2>Log</h2>
-  <pre id="log" class="log">{{ run.log or '(vazio)' }}</pre>
-</section>
+{% include "_scraper_run_corpo.html" %}
 {% endblock %}

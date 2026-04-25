@@ -1,0 +1,85 @@
+{# Partial: corpo da página de execução de scraper.
+   Renderizado tanto na carga inicial quanto a cada poll htmx.
+   Quando run.status != 'rodando', sai sem hx-trigger -> polling para sozinho. #}
+<div id="run-corpo"
+     {% if run.status == 'rodando' %}
+       hx-get="/scrapers/run/{{ run.id }}/log"
+       hx-trigger="every 1500ms"
+       hx-swap="outerHTML"
+     {% endif %}>
+  <section class="cards">
+    <div class="card">
+      <div class="card-rotulo">Status</div>
+      <div class="card-valor pequeno">
+        <span class="status status-{{ run.status }}">{{ run.status }}</span>
+        {% if run.status == 'rodando' %}
+          <span class="ao-vivo" title="atualizando a cada 1,5 s">● ao vivo</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-rotulo">Iniciado</div>
+      <div class="card-valor pequeno">{{ run.iniciado_em | local_dt('%d/%m/%Y %H:%M:%S') }}</div>
+    </div>
+    <div class="card">
+      <div class="card-rotulo">Finalizado</div>
+      <div class="card-valor pequeno">{{ run.finalizado_em | local_dt('%d/%m/%Y %H:%M:%S') }}</div>
+    </div>
+    <div class="card">
+      <div class="card-rotulo">Novos / Atualizados</div>
+      <div class="card-valor">{{ run.contatos_novos }}<span class="cinza" style="font-size:18px"> / {{ run.contatos_atualizados }}</span></div>
+    </div>
+  </section>
+
+  <section class="bloco" style="margin-top:24px">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+      <h2 style="margin:0">Log</h2>
+      <div style="display:flex; gap:8px; align-items:center">
+        {% if run.status != 'rodando' %}
+          <small class="cinza">execução concluída</small>
+        {% endif %}
+        <label style="font-size:13px; color:var(--ink-soft); display:flex; align-items:center; gap:4px;">
+          <input type="checkbox" id="autoscroll" checked> auto-scroll
+        </label>
+      </div>
+    </div>
+    <pre id="log" class="log" data-autoscroll
+         style="max-height:60vh; overflow:auto; margin-top:12px;">{{ run.log or '(aguardando saída do scraper...)' }}</pre>
+  </section>
+</div>
+
+<script>
+  // Auto-scroll: persiste o estado do checkbox em sessionStorage (htmx
+  // re-cria o elemento a cada swap, então sem isso a preferência some).
+  (function () {
+    const log = document.getElementById('log');
+    const chk = document.getElementById('autoscroll');
+    if (!log) return;
+
+    const KEY = 'scraper-autoscroll';
+    const guardado = sessionStorage.getItem(KEY);
+    const ativar = guardado === null ? true : guardado === '1';
+    if (chk) {
+      chk.checked = ativar;
+      chk.addEventListener('change', () => {
+        sessionStorage.setItem(KEY, chk.checked ? '1' : '0');
+      });
+    }
+    if (ativar) {
+      log.scrollTop = log.scrollHeight;
+    }
+  })();
+</script>
+
+<style>
+  .ao-vivo {
+    display:inline-block; margin-left:8px; padding:2px 8px;
+    background:#dcfce7; color:#166534; border-radius:10px;
+    font-size:11px; font-weight:600; letter-spacing:.4px;
+    animation: pulso 1.4s ease-in-out infinite;
+  }
+  @keyframes pulso {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: .45; }
+  }
+</style>

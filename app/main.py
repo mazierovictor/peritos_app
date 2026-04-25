@@ -332,11 +332,15 @@ def scrapers_run(run_id: int, request: Request, user: dict = Depends(requer_logi
 
 
 @app.get("/scrapers/run/{run_id}/log", response_class=HTMLResponse)
-def scrapers_run_log(run_id: int, user: dict = Depends(requer_login)):
+def scrapers_run_log(run_id: int, request: Request, user: dict = Depends(requer_login)):
     run = scraper_runner.get_run(run_id)
     if not run:
         raise HTTPException(404)
-    return HTMLResponse(f"<pre id='log' class='log'>{(run['log'] or '')}</pre>")
+    # Retorna o partial inteiro (cards + log). Quando run.status != 'rodando',
+    # o partial sai sem hx-trigger e o htmx para de pollar sozinho.
+    return templates.TemplateResponse("_scraper_run_corpo.html", {
+        "request": request, "user": user, "run": run,
+    })
 
 
 # ─── Contatos ──────────────────────────────────────────────────────────

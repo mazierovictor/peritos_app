@@ -52,14 +52,14 @@ def _finalizar_run(run_id: int, status: str, log: str, novos: int, atualizados: 
         conn.execute(
             "UPDATE scraper_runs SET status = ?, finalizado_em = CURRENT_TIMESTAMP, "
             "log = ?, contatos_novos = ?, contatos_atualizados = ? WHERE id = ?",
-            (status, log[-20000:], novos, atualizados, run_id),
+            (status, log[-200000:], novos, atualizados, run_id),
         )
 
 
 def _append_log(run_id: int, texto: str) -> None:
     with get_conn() as conn:
         atual = conn.execute("SELECT log FROM scraper_runs WHERE id = ?", (run_id,)).fetchone()
-        novo = ((atual["log"] or "") + texto)[-20000:]
+        novo = ((atual["log"] or "") + texto)[-200000:]
         conn.execute("UPDATE scraper_runs SET log = ? WHERE id = ?", (novo, run_id))
 
 
