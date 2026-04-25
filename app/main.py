@@ -242,6 +242,12 @@ def scrapers_disparar_todos(user: dict = Depends(requer_login)):
     return RedirectResponse(url="/scrapers", status_code=303)
 
 
+@app.post("/scrapers/parar-todos")
+def scrapers_parar_todos(user: dict = Depends(requer_login)):
+    scraper_runner.parar_todos()
+    return RedirectResponse(url="/scrapers", status_code=303)
+
+
 @app.get("/scrapers/{sigla}/importar", response_class=HTMLResponse)
 def scrapers_importar_form(sigla: str, request: Request,
                            user: dict = Depends(requer_login),

@@ -16,14 +16,22 @@
 </header>
 
 {% if rodando %}
-<div class="alerta-ok" style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+<div class="alerta-ok" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
   <div>
     <strong>Em execução agora:</strong>
     {% for r in rodando %}
-      <a href="/scrapers/run/{{ r.id }}" style="margin-right:10px"><span class="status status-rodando">{{ r.tribunal|upper }}</span></a>
+      <a href="/scrapers/run/{{ r.id }}" style="margin-right:10px; text-decoration:none">
+        <span class="status status-rodando">{{ r.tribunal|upper }}</span>
+      </a>
     {% endfor %}
   </div>
-  <small class="cinza">Esta página atualiza sozinha a cada 5s.</small>
+  <div style="display:flex; align-items:center; gap:12px;">
+    <small class="cinza">Atualiza a cada 5s.</small>
+    <form method="post" action="/scrapers/parar-todos" class="inline"
+          onsubmit="return confirm('Parar todas as execuções em andamento? Os processos em curso serão finalizados.');">
+      <button type="submit" class="btn-secundario erro">⏹ Parar tudo</button>
+    </form>
+  </div>
 </div>
 <script>setTimeout(() => location.reload(), 5000);</script>
 {% endif %}

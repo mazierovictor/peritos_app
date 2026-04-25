@@ -26,6 +26,12 @@ def _scripts_dir() -> Path:
     return Path(__file__).parent / "external_scripts"
 
 
+# Estado global de execução para permitir cancelamento
+_processos_ativos: dict[int, subprocess.Popen] = {}
+_cancelar_sequencia: bool = False
+_lock = threading.Lock()
+
+
 def _tmp_dir(run_id: int) -> Path:
     p = Path(settings.data_dir) / "scraping_tmp" / f"run_{run_id}"
     p.mkdir(parents=True, exist_ok=True)
@@ -154,6 +160,8 @@ def _executar(run_id: int, info: ScraperInfo) -> None:
             errors="replace",
             env=full_env,
         )
+        with _lock:
+            _processos_ativos[run_id] = proc
         assert proc.stdout is not None
         buffer: list[str] = []
         for linha in proc.stdout:
@@ -165,8 +173,11 @@ def _executar(run_id: int, info: ScraperInfo) -> None:
             _append_log(run_id, "".join(buffer))
 
         codigo = proc.wait()
+        with _lock:
+            _processos_ativos.pop(run_id, None)
         if codigo != 0:
-            _finalizar_run(run_id, "erro", _ler_log(run_id) + f"\n[exit code: {codigo}]", 0, 0)
+            mensagem = "[cancelado pelo usuário]" if codigo < 0 else f"[exit code: {codigo}]"
+            _finalizar_run(run_id, "erro", _ler_log(run_id) + "\n" + mensagem, 0, 0)
             return
 
         xlsx_path = workdir / info.xlsx
@@ -184,6 +195,8 @@ def _executar(run_id: int, info: ScraperInfo) -> None:
     except Exception as e:
         _finalizar_run(run_id, "erro", _ler_log(run_id) + f"\nErro: {e!r}\n", 0, 0)
     finally:
+        with _lock:
+            _processos_ativos.pop(run_id, None)
         try:
             shutil.rmtree(workdir, ignore_errors=True)
         except Exception:
@@ -212,7 +225,10 @@ def disparar(sigla: str) -> int:
 
 def _executar_todos_sequencial() -> None:
     """Roda cada scraper não-manual, um após o outro, na mesma thread."""
+    global _cancelar_sequencia
     for s in SCRAPERS.values():
+        if _cancelar_sequencia:
+            break
         if s.manual:
             continue
         try:
@@ -225,10 +241,46 @@ def _executar_todos_sequencial() -> None:
 
 def disparar_todos() -> None:
     """Dispara todos os scrapers (exceto manuais) em sequência, em background."""
+    global _cancelar_sequencia
+    _cancelar_sequencia = False
     t = threading.Thread(
         target=_executar_todos_sequencial, daemon=True, name="scraper-todos"
     )
     t.start()
+
+
+def parar_todos() -> int:
+    """
+    Para qualquer execução em andamento. Retorna quantos processos foram
+    interrompidos.
+    """
+    global _cancelar_sequencia
+    _cancelar_sequencia = True
+
+    with _lock:
+        ativos = list(_processos_ativos.items())
+
+    parados = 0
+    for run_id, proc in ativos:
+        try:
+            proc.terminate()  # SIGTERM
+            parados += 1
+        except Exception:
+            pass
+
+    # dá um instante e força quem não morreu
+    if ativos:
+        import time as _t
+        _t.sleep(2)
+        with _lock:
+            ainda_ativos = list(_processos_ativos.items())
+        for _, proc in ainda_ativos:
+            try:
+                proc.kill()  # SIGKILL
+            except Exception:
+                pass
+
+    return parados
 
 
 def importar_xlsx_manual(sigla: str, xlsx_path: Path) -> tuple[int, int, int]:
