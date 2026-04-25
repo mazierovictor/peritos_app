@@ -542,7 +542,7 @@ def historico(
 _DIAS_SEMANA = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 
 
-def _descricao_agendamento(ag: dict) -> str:
+def _quando(ag: dict) -> str:
     hora = ag.get("hora") or "—"
     freq = ag.get("frequencia")
     if freq == "uma_vez":
@@ -564,6 +564,35 @@ def _descricao_agendamento(ag: dict) -> str:
     return "—"
 
 
+def _o_que(ag: dict) -> str:
+    if ag.get("tipo") == "scraper":
+        return f"Scraper {(ag.get('alvo') or '').upper()}"
+    if ag.get("tipo") == "campanha":
+        partes = []
+        if ag.get("filtro_tribunal"):
+            partes.append((ag["filtro_tribunal"] or "").upper())
+        if ag.get("filtro_estado"):
+            partes.append(ag["filtro_estado"])
+        filtro = " · ".join(partes) if partes else "todos"
+        return f"Campanha · {filtro} · {ag.get('quantidade') or 0}/exec"
+    return ag.get("tipo") or "—"
+
+
+def _ctx_agendamento_form(user: dict, request: Request, erro: str | None = None) -> dict:
+    with get_conn() as conn:
+        perfis = [dict(r) for r in conn.execute(
+            "SELECT id, nome, email_remetente, limite_diario "
+            "FROM perfis_remetente WHERE usuario_id = ? ORDER BY nome",
+            (user["id"],),
+        )]
+    ufs, tribunais = _ufs_e_tribunais()
+    return {
+        "request": request, "user": user, "erro": erro,
+        "scrapers": scraper_registry.listar(),
+        "perfis": perfis, "ufs": ufs, "tribunais": tribunais,
+    }
+
+
 @app.get("/agendamentos", response_class=HTMLResponse)
 def agendamentos_lista(request: Request, user: dict = Depends(requer_login)):
     with get_conn() as conn:
@@ -571,8 +600,9 @@ def agendamentos_lista(request: Request, user: dict = Depends(requer_login)):
     items = []
     for r in rows:
         d = dict(r)
-        d["proxima"] = scheduler.proxima_execucao(d["id"]) if d["ativo"] else None
-        d["descricao"] = _descricao_agendamento(d)
+        d["proxima"]   = scheduler.proxima_execucao(d["id"]) if d["ativo"] else None
+        d["descricao"] = _quando(d)
+        d["o_que"]     = _o_que(d)
         items.append(d)
     return templates.TemplateResponse("agendamentos.html", {
         "request": request, "user": user, "agendamentos": items,
@@ -581,10 +611,8 @@ def agendamentos_lista(request: Request, user: dict = Depends(requer_login)):
 
 @app.get("/agendamentos/novo", response_class=HTMLResponse)
 def agendamentos_novo_form(request: Request, user: dict = Depends(requer_login), erro: str | None = None):
-    return templates.TemplateResponse("agendamento_form.html", {
-        "request": request, "user": user, "erro": erro,
-        "scrapers": scraper_registry.listar(),
-    })
+    return templates.TemplateResponse("agendamento_form.html",
+                                      _ctx_agendamento_form(user, request, erro))
 
 
 @app.post("/agendamentos/novo")
@@ -592,37 +620,63 @@ def agendamentos_novo_submit(
     request: Request,
     user: dict = Depends(requer_login),
     nome: str = Form(...),
-    alvo: str = Form(...),
+    tipo: str = Form(...),
+    alvo: str = Form(""),
+    perfil_id: str = Form(""),
+    filtro_estado: str = Form(""),
+    filtro_tribunal: str = Form(""),
+    quantidade: int = Form(50),
     frequencia: str = Form(...),
     hora: str = Form(...),
     data: str = Form(""),
     dia_semana: str = Form(""),
     dia_mes: str = Form(""),
 ):
-    erro = None
-    if frequencia == "uma_vez" and not data:
-        erro = "Para 'apenas uma vez', informe a data."
-    elif frequencia == "semanal" and dia_semana == "":
-        erro = "Para 'toda semana', escolha o dia da semana."
-    elif frequencia == "mensal" and dia_mes == "":
-        erro = "Para 'todo mês', informe o dia do mês."
+    erro: str | None = None
+
+    if tipo == "scraper":
+        if not alvo:
+            erro = "Escolha qual scraper rodar."
+    elif tipo == "campanha":
+        if not perfil_id:
+            erro = "Escolha o perfil de remetente."
+        else:
+            with get_conn() as conn:
+                ok = conn.execute(
+                    "SELECT 1 FROM perfis_remetente WHERE id = ? AND usuario_id = ?",
+                    (int(perfil_id), user["id"]),
+                ).fetchone()
+            if not ok:
+                erro = "Perfil de remetente inválido."
+    else:
+        erro = "Tipo de agendamento inválido."
+
+    if erro is None:
+        if frequencia == "uma_vez" and not data:
+            erro = "Para 'apenas uma vez', informe a data."
+        elif frequencia == "semanal" and dia_semana == "":
+            erro = "Para 'toda semana', escolha o dia da semana."
+        elif frequencia == "mensal" and dia_mes == "":
+            erro = "Para 'todo mês', informe o dia do mês."
 
     if erro:
-        return templates.TemplateResponse("agendamento_form.html", {
-            "request": request, "user": user, "scrapers": scraper_registry.listar(),
-            "erro": erro,
-        })
+        return templates.TemplateResponse("agendamento_form.html",
+                                          _ctx_agendamento_form(user, request, erro))
 
+    pid = int(perfil_id) if perfil_id else None
     ds = int(dia_semana) if dia_semana != "" else None
     dm = int(dia_mes) if dia_mes != "" else None
+    alvo_efetivo = alvo if tipo == "scraper" else ""
 
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO agendamentos (nome, tipo, alvo, frequencia, hora, data, "
-            "dia_semana, dia_mes, cron, ativo) "
-            "VALUES (?, 'scraper', ?, ?, ?, ?, ?, ?, '', 1)",
-            (nome.strip(), alvo, frequencia, hora,
-             data or None, ds, dm),
+            "INSERT INTO agendamentos (nome, tipo, alvo, perfil_id, filtro_estado, "
+            "filtro_tribunal, quantidade, frequencia, hora, data, dia_semana, "
+            "dia_mes, cron, ativo) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', 1)",
+            (nome.strip(), tipo, alvo_efetivo, pid,
+             filtro_estado or None, filtro_tribunal or None, int(quantidade),
+             frequencia, hora, data or None, ds, dm),
         )
     scheduler.recarregar()
     return RedirectResponse(url="/agendamentos", status_code=303)

@@ -8,69 +8,125 @@
 
 <form method="post" action="/agendamentos/novo" class="form-largo">
   <label>Nome do agendamento
-    <input type="text" name="nome" placeholder="Ex.: TJMG diário 03h" required>
+    <input type="text" name="nome" placeholder="Ex.: TJMG diário 09h" required>
   </label>
 
-  <label>O que rodar (scraper)
-    <select name="alvo" required>
-      {% for s in scrapers %}
-      {% if not s.manual %}
-      <option value="{{ s.sigla }}">{{ s.sigla|upper }} — {{ s.nome }}</option>
-      {% endif %}
-      {% endfor %}
+  <label>O que esse agendamento faz?
+    <select name="tipo" id="campo_tipo" required>
+      <option value="scraper">Buscar contatos (rodar scraper)</option>
+      <option value="campanha">Disparar campanha de e-mail</option>
     </select>
   </label>
 
-  <label>Frequência
-    <select name="frequencia" id="campo_freq" required>
-      <option value="uma_vez">Apenas uma vez</option>
-      <option value="diario" selected>Todos os dias</option>
-      <option value="semanal">Toda semana</option>
-      <option value="mensal">Todo mês</option>
-    </select>
-  </label>
-
-  <div class="grade-2">
-    <label>Hora
-      <input type="time" name="hora" value="03:00" required>
-    </label>
-    <label id="campo_data" style="display:none">Data
-      <input type="date" name="data">
-    </label>
-    <label id="campo_dia_semana" style="display:none">Dia da semana
-      <select name="dia_semana">
-        <option value="0">Segunda</option>
-        <option value="1">Terça</option>
-        <option value="2">Quarta</option>
-        <option value="3">Quinta</option>
-        <option value="4">Sexta</option>
-        <option value="5">Sábado</option>
-        <option value="6">Domingo</option>
+  <fieldset id="bloco_scraper">
+    <legend>Scraper</legend>
+    <label>Tribunal
+      <select name="alvo">
+        {% for s in scrapers %}
+        {% if not s.manual %}
+        <option value="{{ s.sigla }}">{{ s.sigla|upper }} — {{ s.nome }}</option>
+        {% endif %}
+        {% endfor %}
       </select>
     </label>
-    <label id="campo_dia_mes" style="display:none">Dia do mês (1–28)
-      <input type="number" name="dia_mes" min="1" max="28" value="1">
-    </label>
-  </div>
+  </fieldset>
 
-  <small class="cinza">Horário considerado: <strong>fuso de Brasília (America/Sao_Paulo)</strong>.</small>
+  <fieldset id="bloco_campanha" style="display:none">
+    <legend>Campanha</legend>
+    {% if not perfis %}
+    <p class="alerta-erro">Você precisa criar um <a href="/perfis/novo">perfil de remetente</a> antes.</p>
+    {% endif %}
+    <label>Perfil de remetente
+      <select name="perfil_id">
+        <option value="">— escolha —</option>
+        {% for p in perfis %}
+        <option value="{{ p.id }}">{{ p.nome }} &lt;{{ p.email_remetente }}&gt; — limite {{ p.limite_diario }}/dia</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="grade-2">
+      <label>Filtrar por UF
+        <select name="filtro_estado">
+          <option value="">— todos —</option>
+          {% for uf in ufs %}<option value="{{ uf }}">{{ uf }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Filtrar por Tribunal
+        <select name="filtro_tribunal">
+          <option value="">— todos —</option>
+          {% for tj in tribunais %}<option value="{{ tj }}">{{ tj|upper }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+    <label>Quantidade por execução
+      <input type="number" name="quantidade" value="50" min="1" max="500">
+      <small class="cinza">Será limitada também pelo limite diário do perfil.</small>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Quando rodar</legend>
+    <label>Frequência
+      <select name="frequencia" id="campo_freq" required>
+        <option value="uma_vez">Apenas uma vez</option>
+        <option value="diario" selected>Todos os dias</option>
+        <option value="semanal">Toda semana</option>
+        <option value="mensal">Todo mês</option>
+      </select>
+    </label>
+
+    <div class="grade-2">
+      <label>Hora
+        <input type="time" name="hora" value="09:00" required>
+      </label>
+      <label id="campo_data" style="display:none">Data
+        <input type="date" name="data">
+      </label>
+      <label id="campo_dia_semana" style="display:none">Dia da semana
+        <select name="dia_semana">
+          <option value="0">Segunda</option>
+          <option value="1">Terça</option>
+          <option value="2">Quarta</option>
+          <option value="3">Quinta</option>
+          <option value="4">Sexta</option>
+          <option value="5">Sábado</option>
+          <option value="6">Domingo</option>
+        </select>
+      </label>
+      <label id="campo_dia_mes" style="display:none">Dia do mês (1–28)
+        <input type="number" name="dia_mes" min="1" max="28" value="1">
+      </label>
+    </div>
+
+    <small class="cinza">Horário considerado: <strong>fuso de Brasília (America/Sao_Paulo)</strong>.</small>
+  </fieldset>
 
   <button type="submit" class="btn-primario">Criar agendamento</button>
 </form>
 
 <script>
   (function () {
-    const sel = document.getElementById('campo_freq');
+    const tipoSel = document.getElementById('campo_tipo');
+    const blScrap = document.getElementById('bloco_scraper');
+    const blCamp  = document.getElementById('bloco_campanha');
+    function atualizarTipo() {
+      blScrap.style.display = (tipoSel.value === 'scraper')  ? '' : 'none';
+      blCamp.style.display  = (tipoSel.value === 'campanha') ? '' : 'none';
+    }
+    tipoSel.addEventListener('change', atualizarTipo);
+    atualizarTipo();
+
+    const freqSel = document.getElementById('campo_freq');
     const cData = document.getElementById('campo_data');
     const cSem  = document.getElementById('campo_dia_semana');
     const cMes  = document.getElementById('campo_dia_mes');
-    function atualizar() {
-      cData.style.display = (sel.value === 'uma_vez') ? '' : 'none';
-      cSem.style.display  = (sel.value === 'semanal') ? '' : 'none';
-      cMes.style.display  = (sel.value === 'mensal')  ? '' : 'none';
+    function atualizarFreq() {
+      cData.style.display = (freqSel.value === 'uma_vez') ? '' : 'none';
+      cSem.style.display  = (freqSel.value === 'semanal') ? '' : 'none';
+      cMes.style.display  = (freqSel.value === 'mensal')  ? '' : 'none';
     }
-    sel.addEventListener('change', atualizar);
-    atualizar();
+    freqSel.addEventListener('change', atualizarFreq);
+    atualizarFreq();
   })();
 </script>
 {% endblock %}

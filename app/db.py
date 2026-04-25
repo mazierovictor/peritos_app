@@ -93,12 +93,16 @@ def _migrar() -> None:
     with get_conn() as conn:
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(agendamentos)")}
         novas = [
-            ("nome",       "TEXT NOT NULL DEFAULT ''"),
-            ("frequencia", "TEXT NOT NULL DEFAULT 'diario'"),
-            ("hora",       "TEXT NOT NULL DEFAULT '03:00'"),
-            ("data",       "TEXT"),
-            ("dia_semana", "INTEGER"),
-            ("dia_mes",    "INTEGER"),
+            ("nome",            "TEXT NOT NULL DEFAULT ''"),
+            ("frequencia",      "TEXT NOT NULL DEFAULT 'diario'"),
+            ("hora",             "TEXT NOT NULL DEFAULT '03:00'"),
+            ("data",             "TEXT"),
+            ("dia_semana",       "INTEGER"),
+            ("dia_mes",          "INTEGER"),
+            ("perfil_id",        "INTEGER"),
+            ("filtro_estado",    "TEXT"),
+            ("filtro_tribunal",  "TEXT"),
+            ("quantidade",       "INTEGER"),
         ]
         for col, ddl in novas:
             if col not in cols:

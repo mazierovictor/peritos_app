@@ -1,13 +1,16 @@
 """
-Agendador de scrapers via APScheduler.
+Agendador de scrapers e campanhas via APScheduler.
 
 Cada agendamento tem:
-  - nome:        rótulo amigável
-  - frequencia:  uma_vez | diario | semanal | mensal
-  - hora:        "HH:MM"
-  - data:        "YYYY-MM-DD"  (só usado quando frequencia = uma_vez)
-  - dia_semana:  0-6 (0=segunda)  (só usado quando frequencia = semanal)
-  - dia_mes:     1-28             (só usado quando frequencia = mensal)
+  - nome:         rótulo amigável
+  - tipo:         'scraper' | 'campanha'
+  - alvo:         (scraper) sigla do TJ
+  - perfil_id, filtro_estado, filtro_tribunal, quantidade  (campanha)
+  - frequencia:   uma_vez | diario | semanal | mensal
+  - hora:         "HH:MM"
+  - data:         "YYYY-MM-DD"  (frequencia = uma_vez)
+  - dia_semana:   0-6 (0=segunda)  (frequencia = semanal)
+  - dia_mes:      1-28             (frequencia = mensal)
 
 O fuso usado é America/Sao_Paulo, então o usuário escolhe o horário local.
 """
@@ -21,17 +24,40 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 
 from .db import get_conn
-from .scrapers import runner as scraper_runner
 
 
 TZ = "America/Sao_Paulo"
 _scheduler: Optional[BackgroundScheduler] = None
 
 
-def _executar_job(tipo: str, alvo: str) -> None:
-    if tipo == "scraper":
+def _executar_job(ag_id: int) -> None:
+    """Carrega o agendamento atual do banco e dispara a ação correspondente."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM agendamentos WHERE id = ?", (ag_id,)).fetchone()
+    if not row:
+        return
+    ag = dict(row)
+
+    if ag["tipo"] == "scraper":
+        from .scrapers import runner as scraper_runner
         try:
-            scraper_runner.disparar(alvo)
+            scraper_runner.disparar(ag["alvo"])
+        except Exception:
+            pass
+
+    elif ag["tipo"] == "campanha":
+        from . import mailer
+        if not ag.get("perfil_id"):
+            return
+        try:
+            mailer.disparar(
+                ag["perfil_id"],
+                int(ag.get("quantidade") or 50),
+                {
+                    "estado": ag.get("filtro_estado") or None,
+                    "tribunal": ag.get("filtro_tribunal") or None,
+                },
+            )
         except Exception:
             pass
 
@@ -83,7 +109,7 @@ def _registrar_no_scheduler(ag: dict) -> None:
         _scheduler.add_job(
             _executar_job,
             trigger=trigger,
-            args=[ag["tipo"], ag["alvo"]],
+            args=[ag["id"]],
             id=f"ag-{ag['id']}",
             name=ag.get("nome") or f"agendamento {ag['id']}",
             replace_existing=True,

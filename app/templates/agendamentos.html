@@ -10,7 +10,7 @@
   <thead>
     <tr>
       <th>Nome</th>
-      <th>Scraper</th>
+      <th>O que faz</th>
       <th>Quando</th>
       <th>Próxima execução</th>
       <th>Ativo</th>
@@ -21,7 +21,7 @@
     {% for a in agendamentos %}
     <tr>
       <td><strong>{{ a.nome or '(sem nome)' }}</strong></td>
-      <td>{{ (a.alvo or '')|upper }}</td>
+      <td>{{ a.o_que }}</td>
       <td>{{ a.descricao }}</td>
       <td>{{ a.proxima or '—' }}</td>
       <td>{% if a.ativo %}✓{% else %}—{% endif %}</td>
