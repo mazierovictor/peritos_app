@@ -7,12 +7,11 @@
 {% if erro %}<div class="alerta-erro">{{ erro }}</div>{% endif %}
 
 <form method="post" action="/agendamentos/novo" class="form-largo">
-  <label>Tipo
-    <select name="tipo" required>
-      <option value="scraper">Scraper</option>
-    </select>
+  <label>Nome do agendamento
+    <input type="text" name="nome" placeholder="Ex.: TJMG diário 03h" required>
   </label>
-  <label>Alvo (sigla do scraper)
+
+  <label>O que rodar (scraper)
     <select name="alvo" required>
       {% for s in scrapers %}
       {% if not s.manual %}
@@ -21,10 +20,57 @@
       {% endfor %}
     </select>
   </label>
-  <label>Expressão cron (5 campos: minuto hora dia mês dia-semana)
-    <input type="text" name="cron" value="0 3 * * *" required>
-    <small class="cinza">Exemplos: <code>0 3 * * *</code> = todo dia às 03:00 / <code>0 3 * * 1</code> = toda segunda 03:00 / <code>30 2 1 * *</code> = dia 1 do mês às 02:30.</small>
+
+  <label>Frequência
+    <select name="frequencia" id="campo_freq" required>
+      <option value="uma_vez">Apenas uma vez</option>
+      <option value="diario" selected>Todos os dias</option>
+      <option value="semanal">Toda semana</option>
+      <option value="mensal">Todo mês</option>
+    </select>
   </label>
+
+  <div class="grade-2">
+    <label>Hora
+      <input type="time" name="hora" value="03:00" required>
+    </label>
+    <label id="campo_data" style="display:none">Data
+      <input type="date" name="data">
+    </label>
+    <label id="campo_dia_semana" style="display:none">Dia da semana
+      <select name="dia_semana">
+        <option value="0">Segunda</option>
+        <option value="1">Terça</option>
+        <option value="2">Quarta</option>
+        <option value="3">Quinta</option>
+        <option value="4">Sexta</option>
+        <option value="5">Sábado</option>
+        <option value="6">Domingo</option>
+      </select>
+    </label>
+    <label id="campo_dia_mes" style="display:none">Dia do mês (1–28)
+      <input type="number" name="dia_mes" min="1" max="28" value="1">
+    </label>
+  </div>
+
+  <small class="cinza">Horário considerado: <strong>fuso de Brasília (America/Sao_Paulo)</strong>.</small>
+
   <button type="submit" class="btn-primario">Criar agendamento</button>
 </form>
+
+<script>
+  (function () {
+    const sel = document.getElementById('campo_freq');
+    const cData = document.getElementById('campo_data');
+    const cSem  = document.getElementById('campo_dia_semana');
+    const cMes  = document.getElementById('campo_dia_mes');
+    function atualizar() {
+      cData.style.display = (sel.value === 'uma_vez') ? '' : 'none';
+      cSem.style.display  = (sel.value === 'semanal') ? '' : 'none';
+      cMes.style.display  = (sel.value === 'mensal')  ? '' : 'none';
+    }
+    sel.addEventListener('change', atualizar);
+    atualizar();
+  })();
+</script>
 {% endblock %}

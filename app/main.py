@@ -539,6 +539,31 @@ def historico(
 
 # ─── Agendamentos ──────────────────────────────────────────────────────
 
+_DIAS_SEMANA = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+
+
+def _descricao_agendamento(ag: dict) -> str:
+    hora = ag.get("hora") or "—"
+    freq = ag.get("frequencia")
+    if freq == "uma_vez":
+        try:
+            d = ag.get("data") or ""
+            ano, mes, dia = d.split("-")
+            return f"Em {dia}/{mes}/{ano} às {hora}"
+        except Exception:
+            return f"Em {ag.get('data')} às {hora}"
+    if freq == "diario":
+        return f"Todos os dias às {hora}"
+    if freq == "semanal":
+        ds = ag.get("dia_semana")
+        nome = _DIAS_SEMANA[ds] if ds is not None and 0 <= ds < 7 else "?"
+        return f"Toda {nome.lower()} às {hora}"
+    if freq == "mensal":
+        dm = ag.get("dia_mes")
+        return f"Todo dia {dm} do mês às {hora}"
+    return "—"
+
+
 @app.get("/agendamentos", response_class=HTMLResponse)
 def agendamentos_lista(request: Request, user: dict = Depends(requer_login)):
     with get_conn() as conn:
@@ -547,6 +572,7 @@ def agendamentos_lista(request: Request, user: dict = Depends(requer_login)):
     for r in rows:
         d = dict(r)
         d["proxima"] = scheduler.proxima_execucao(d["id"]) if d["ativo"] else None
+        d["descricao"] = _descricao_agendamento(d)
         items.append(d)
     return templates.TemplateResponse("agendamentos.html", {
         "request": request, "user": user, "agendamentos": items,
@@ -565,19 +591,38 @@ def agendamentos_novo_form(request: Request, user: dict = Depends(requer_login),
 def agendamentos_novo_submit(
     request: Request,
     user: dict = Depends(requer_login),
-    tipo: str = Form(...),
+    nome: str = Form(...),
     alvo: str = Form(...),
-    cron: str = Form(...),
+    frequencia: str = Form(...),
+    hora: str = Form(...),
+    data: str = Form(""),
+    dia_semana: str = Form(""),
+    dia_mes: str = Form(""),
 ):
-    if len(cron.split()) != 5:
+    erro = None
+    if frequencia == "uma_vez" and not data:
+        erro = "Para 'apenas uma vez', informe a data."
+    elif frequencia == "semanal" and dia_semana == "":
+        erro = "Para 'toda semana', escolha o dia da semana."
+    elif frequencia == "mensal" and dia_mes == "":
+        erro = "Para 'todo mês', informe o dia do mês."
+
+    if erro:
         return templates.TemplateResponse("agendamento_form.html", {
             "request": request, "user": user, "scrapers": scraper_registry.listar(),
-            "erro": "Cron precisa ter 5 campos (ex: '0 3 * * *').",
+            "erro": erro,
         })
+
+    ds = int(dia_semana) if dia_semana != "" else None
+    dm = int(dia_mes) if dia_mes != "" else None
+
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO agendamentos (tipo, alvo, cron, ativo) VALUES (?, ?, ?, 1)",
-            (tipo, alvo, cron),
+            "INSERT INTO agendamentos (nome, tipo, alvo, frequencia, hora, data, "
+            "dia_semana, dia_mes, cron, ativo) "
+            "VALUES (?, 'scraper', ?, ?, ?, ?, ?, ?, '', 1)",
+            (nome.strip(), alvo, frequencia, hora,
+             data or None, ds, dm),
         )
     scheduler.recarregar()
     return RedirectResponse(url="/agendamentos", status_code=303)

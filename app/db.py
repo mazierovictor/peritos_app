@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS scraper_runs (
 
 CREATE TABLE IF NOT EXISTS agendamentos (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome      TEXT NOT NULL DEFAULT '',
     tipo      TEXT NOT NULL,
     alvo      TEXT NOT NULL,
     cron      TEXT NOT NULL,
@@ -85,6 +86,23 @@ CREATE TABLE IF NOT EXISTS agendamentos (
     criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 """
+
+
+def _migrar() -> None:
+    """Migrações idempotentes para schemas que mudaram entre versões."""
+    with get_conn() as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(agendamentos)")}
+        novas = [
+            ("nome",       "TEXT NOT NULL DEFAULT ''"),
+            ("frequencia", "TEXT NOT NULL DEFAULT 'diario'"),
+            ("hora",       "TEXT NOT NULL DEFAULT '03:00'"),
+            ("data",       "TEXT"),
+            ("dia_semana", "INTEGER"),
+            ("dia_mes",    "INTEGER"),
+        ]
+        for col, ddl in novas:
+            if col not in cols:
+                conn.execute(f"ALTER TABLE agendamentos ADD COLUMN {col} {ddl}")
 
 
 def db_path() -> Path:
@@ -117,3 +135,4 @@ def get_conn() -> Iterator[sqlite3.Connection]:
 def init_db() -> None:
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+    _migrar()

@@ -1,18 +1,30 @@
 """
-Agendador de scrapers via APScheduler. Os jobs são (re)carregados do banco no startup
-e quando agendamentos são criados/alterados/excluídos.
+Agendador de scrapers via APScheduler.
+
+Cada agendamento tem:
+  - nome:        rótulo amigável
+  - frequencia:  uma_vez | diario | semanal | mensal
+  - hora:        "HH:MM"
+  - data:        "YYYY-MM-DD"  (só usado quando frequencia = uma_vez)
+  - dia_semana:  0-6 (0=segunda)  (só usado quando frequencia = semanal)
+  - dia_mes:     1-28             (só usado quando frequencia = mensal)
+
+O fuso usado é America/Sao_Paulo, então o usuário escolhe o horário local.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 
 from .db import get_conn
 from .scrapers import runner as scraper_runner
 
 
+TZ = "America/Sao_Paulo"
 _scheduler: Optional[BackgroundScheduler] = None
 
 
@@ -24,23 +36,56 @@ def _executar_job(tipo: str, alvo: str) -> None:
             pass
 
 
+def _trigger_para(ag: dict):
+    try:
+        hh_str, mm_str = (ag.get("hora") or "03:00").split(":")
+        hh, mm = int(hh_str), int(mm_str)
+    except Exception:
+        hh, mm = 3, 0
+
+    freq = ag.get("frequencia") or "diario"
+
+    if freq == "uma_vez":
+        if not ag.get("data"):
+            return None
+        try:
+            dt = datetime.fromisoformat(f"{ag['data']}T{hh:02d}:{mm:02d}:00")
+        except Exception:
+            return None
+        return DateTrigger(run_date=dt, timezone=TZ)
+
+    if freq == "diario":
+        return CronTrigger(minute=mm, hour=hh, timezone=TZ)
+
+    if freq == "semanal":
+        ds = ag.get("dia_semana")
+        if ds is None:
+            return None
+        return CronTrigger(minute=mm, hour=hh, day_of_week=int(ds), timezone=TZ)
+
+    if freq == "mensal":
+        dm = ag.get("dia_mes")
+        if dm is None:
+            return None
+        return CronTrigger(minute=mm, hour=hh, day=int(dm), timezone=TZ)
+
+    return None
+
+
 def _registrar_no_scheduler(ag: dict) -> None:
     assert _scheduler is not None
     if not ag["ativo"]:
         return
+    trigger = _trigger_para(ag)
+    if trigger is None:
+        return
     try:
-        partes = ag["cron"].split()
-        if len(partes) != 5:
-            return
-        minute, hour, day, month, day_of_week = partes
-        trigger = CronTrigger(
-            minute=minute, hour=hour, day=day, month=month, day_of_week=day_of_week,
-        )
         _scheduler.add_job(
             _executar_job,
             trigger=trigger,
             args=[ag["tipo"], ag["alvo"]],
             id=f"ag-{ag['id']}",
+            name=ag.get("nome") or f"agendamento {ag['id']}",
             replace_existing=True,
             coalesce=True,
             max_instances=1,
@@ -66,7 +111,7 @@ def iniciar() -> None:
     global _scheduler
     if _scheduler is not None:
         return
-    _scheduler = BackgroundScheduler(timezone="UTC")
+    _scheduler = BackgroundScheduler(timezone=TZ)
     _scheduler.start()
     recarregar()
 
@@ -84,4 +129,4 @@ def proxima_execucao(ag_id: int) -> str | None:
     job = _scheduler.get_job(f"ag-{ag_id}")
     if not job or not job.next_run_time:
         return None
-    return job.next_run_time.strftime("%Y-%m-%d %H:%M:%S %Z")
+    return job.next_run_time.strftime("%d/%m/%Y %H:%M")

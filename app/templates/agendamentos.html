@@ -2,18 +2,27 @@
 {% block titulo %}Agendamentos — Peritos{% endblock %}
 {% block conteudo %}
 <h1>Agendamentos</h1>
-<p class="vazio">Configure horários para os scrapers rodarem automaticamente. Os horários usam o fuso do servidor (UTC no container; ajuste o cron se quiser outro fuso).</p>
+<p class="vazio">Configure quando os scrapers devem rodar automaticamente. Horário em <strong>Brasília</strong>.</p>
 
 <a href="/agendamentos/novo" class="btn-primario">+ Novo agendamento</a>
 
 <table class="tabela espacada">
-  <thead><tr><th>Tipo</th><th>Alvo</th><th>Cron</th><th>Próxima execução</th><th>Ativo</th><th>Ações</th></tr></thead>
+  <thead>
+    <tr>
+      <th>Nome</th>
+      <th>Scraper</th>
+      <th>Quando</th>
+      <th>Próxima execução</th>
+      <th>Ativo</th>
+      <th>Ações</th>
+    </tr>
+  </thead>
   <tbody>
     {% for a in agendamentos %}
     <tr>
-      <td>{{ a.tipo }}</td>
-      <td>{{ a.alvo }}</td>
-      <td><code>{{ a.cron }}</code></td>
+      <td><strong>{{ a.nome or '(sem nome)' }}</strong></td>
+      <td>{{ (a.alvo or '')|upper }}</td>
+      <td>{{ a.descricao }}</td>
       <td>{{ a.proxima or '—' }}</td>
       <td>{% if a.ativo %}✓{% else %}—{% endif %}</td>
       <td class="acoes">
