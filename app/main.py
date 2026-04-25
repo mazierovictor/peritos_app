@@ -175,11 +175,14 @@ def painel(request: Request, user: dict = Depends(requer_login)):
 def scrapers_lista(request: Request, user: dict = Depends(requer_login)):
     scrapers = scraper_registry.listar()
     config_disponivel = {s.sigla: scraper_configs.schema(s.sigla).disponivel for s in scrapers}
+    ultimas = scraper_runner.ultima_run_por_tribunal()
+    rodando = [u for u in ultimas.values() if u["status"] == "rodando"]
     return templates.TemplateResponse("scrapers.html", {
         "request": request, "user": user,
         "scrapers": scrapers,
-        "ultimas": scraper_runner.ultima_run_por_tribunal(),
+        "ultimas": ultimas,
         "config_disponivel": config_disponivel,
+        "rodando": rodando,
     })
 
 

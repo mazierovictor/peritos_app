@@ -256,6 +256,10 @@ def setup_driver() -> webdriver.Chrome:
     if chrome_bin:
         opts.binary_location = chrome_bin
 
+    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+    if proxy:
+        opts.add_argument(f"--proxy-server={proxy}")
+
     if chromedriver_path:
         from selenium.webdriver.chrome.service import Service as _ChromeService
         driver = webdriver.Chrome(service=_ChromeService(chromedriver_path), options=opts)

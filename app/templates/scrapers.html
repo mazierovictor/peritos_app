@@ -9,6 +9,19 @@
   </div>
 </header>
 
+{% if rodando %}
+<div class="alerta-ok" style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+  <div>
+    <strong>Em execução agora:</strong>
+    {% for r in rodando %}
+      <a href="/scrapers/run/{{ r.id }}" style="margin-right:10px"><span class="status status-rodando">{{ r.tribunal|upper }}</span></a>
+    {% endfor %}
+  </div>
+  <small class="cinza">Esta página atualiza sozinha a cada 5s.</small>
+</div>
+<script>setTimeout(() => location.reload(), 5000);</script>
+{% endif %}
+
 <table class="tabela">
   <thead>
     <tr>
