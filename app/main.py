@@ -730,6 +730,7 @@ def teste_form(request: Request, user: dict = Depends(requer_login),
     return templates.TemplateResponse("teste.html", {
         "request": request, "user": user,
         "perfis": perfis, "perfil_sel": perfil_sel, "erro": erro,
+        "tracking_url": (settings.tracking_base_url or "").rstrip("/"),
     })
 
 
@@ -850,8 +851,8 @@ def historico(
 
 # ─── Detalhe de um envio (timeline) ────────────────────────────────────
 
-@app.get("/historico/envio/{envio_id}", response_class=HTMLResponse)
-def historico_envio(envio_id: int, request: Request, user: dict = Depends(requer_login)):
+def _ctx_envio(envio_id: int, user: dict, request: Request) -> dict:
+    """Carrega envio + aberturas + decide se ainda vale pollar."""
     with get_conn() as conn:
         envio = conn.execute(
             """
@@ -867,16 +868,42 @@ def historico_envio(envio_id: int, request: Request, user: dict = Depends(requer
         ).fetchone()
         if not envio or envio["usuario_id"] != user["id"]:
             raise HTTPException(404)
-
         aberturas = [dict(r) for r in conn.execute(
             "SELECT * FROM aberturas WHERE envio_id = ? ORDER BY aberta_em ASC",
             (envio_id,),
         )]
 
-    return templates.TemplateResponse("historico_envio.html", {
+    # Polling enquanto o envio é "novo" (até 30 min do envio): pode receber
+    # bounce a qualquer momento e novas aberturas. Depois disso, sem polling.
+    poll_ativo = False
+    try:
+        enviado = datetime.fromisoformat(str(envio["enviado_em"]).replace("Z", "+00:00"))
+        if enviado.tzinfo is None:
+            enviado = enviado.replace(tzinfo=timezone.utc)
+        idade_min = (datetime.now(timezone.utc) - enviado).total_seconds() / 60
+        poll_ativo = idade_min < 30 and envio["status"] in ("ok", "bounce_soft")
+    except Exception:
+        pass
+
+    return {
         "request": request, "user": user,
         "envio": dict(envio), "aberturas": aberturas,
-    })
+        "poll_ativo": poll_ativo,
+        "tracking_url": (settings.tracking_base_url or "").rstrip("/"),
+    }
+
+
+@app.get("/historico/envio/{envio_id}", response_class=HTMLResponse)
+def historico_envio(envio_id: int, request: Request, user: dict = Depends(requer_login)):
+    ctx = _ctx_envio(envio_id, user, request)
+    return templates.TemplateResponse("historico_envio.html", ctx)
+
+
+@app.get("/historico/envio/{envio_id}/atualizar", response_class=HTMLResponse)
+def historico_envio_atualizar(envio_id: int, request: Request, user: dict = Depends(requer_login)):
+    """Endpoint htmx: retorna só o partial pra auto-refresh da timeline."""
+    ctx = _ctx_envio(envio_id, user, request)
+    return templates.TemplateResponse("_envio_corpo.html", ctx)
 
 
 # ─── Histórico por vara (agregado) ─────────────────────────────────────

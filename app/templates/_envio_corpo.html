@@ -1,0 +1,188 @@
+{# Partial: corpo da timeline de um envio.
+   Auto-refresh via htmx enquanto for "interessante" pollar:
+   - status ainda 'ok' (pode virar bounce a qualquer momento)
+   - ou houve abertura nos últimos 5 min
+   Quando passa esse threshold, sai sem hx-trigger e o polling para. #}
+<div id="envio-corpo"
+     {% if poll_ativo %}
+       hx-get="/historico/envio/{{ envio.id }}/atualizar"
+       hx-trigger="every 4s"
+       hx-swap="outerHTML"
+     {% endif %}>
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-rotulo">Status atual</div>
+      <div class="card-valor" style="font-size:18px">
+        {% if envio.status == 'ok' %}<span class="status status-ok">enviado</span>
+        {% elif envio.status == 'bounce' %}<span class="status status-erro">bounce {{ envio.bounce_codigo or '5.x.x' }}</span>
+        {% elif envio.status == 'bounce_soft' %}<span class="status">soft {{ envio.bounce_codigo or '4.x.x' }}</span>
+        {% else %}<span class="status status-erro">erro</span>{% endif %}
+        {% if poll_ativo %}<span class="ao-vivo" title="atualizando a cada 4s">● ao vivo</span>{% endif %}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-rotulo">Aberturas</div>
+      <div class="card-valor">{{ aberturas|length }}</div>
+    </div>
+    <div class="card">
+      <div class="card-rotulo">Perfil remetente</div>
+      <div class="card-valor" style="font-size:14px">
+        {{ envio.perfil_nome }}<br>
+        <small class="cinza">{{ envio.email_remetente }}</small>
+      </div>
+    </div>
+  </div>
+
+  {# Avisos de configuração — só aparecem se há problema #}
+  {% if not tracking_url %}
+    <div class="alerta-erro" style="margin-top:16px">
+      ⚠️ <strong>Pixel de abertura desativado.</strong>
+      A env var <code>TRACKING_BASE_URL</code> não está configurada — nenhuma abertura será registrada,
+      mesmo que o destinatário leia o e-mail.<br>
+      Defina-a no EasyPanel como <code>TRACKING_BASE_URL=https://peritos.mspericias.com</code> e reinicie o container.
+    </div>
+  {% elif envio.tracking_token %}
+    <details style="margin-top:16px">
+      <summary class="cinza" style="cursor:pointer; font-size:13px">▸ Diagnóstico de tracking</summary>
+      <div style="padding:12px; background:#f8fafc; border-radius:6px; margin-top:8px; font-size:13px;">
+        <div><strong>URL do pixel:</strong> <a href="{{ tracking_url }}/o/{{ envio.tracking_token }}.png" target="_blank"><code>{{ tracking_url }}/o/{{ envio.tracking_token }}.png</code></a></div>
+        <div style="margin-top:6px"><strong>Message-ID:</strong> <code>{{ envio.message_id or '—' }}</code></div>
+        <div style="margin-top:6px"><strong>Tracking token:</strong> <code>{{ envio.tracking_token }}</code></div>
+        <small class="cinza" style="display:block; margin-top:8px">
+          Clicar no link acima registra uma abertura manual (útil pra testar se o endpoint está respondendo).
+        </small>
+      </div>
+    </details>
+  {% endif %}
+
+  <section class="bloco">
+    <h2 style="margin-top:32px">Linha do tempo</h2>
+    <ol class="timeline">
+      {% if envio.status == 'ok' or envio.status in ('bounce', 'bounce_soft') %}
+        <li class="timeline-item ok">
+          <div class="timeline-icon">📤</div>
+          <div class="timeline-conteudo">
+            <div class="timeline-titulo">E-mail aceito pelo servidor SMTP</div>
+            <div class="timeline-data">{{ envio.enviado_em | local_dt('%d/%m/%Y %H:%M:%S') }}</div>
+            <div class="timeline-detalhe cinza">
+              De {{ envio.email_remetente }} para {{ envio.contato_email }}
+            </div>
+          </div>
+        </li>
+      {% else %}
+        <li class="timeline-item erro">
+          <div class="timeline-icon">❌</div>
+          <div class="timeline-conteudo">
+            <div class="timeline-titulo">Falha ao enviar pelo SMTP</div>
+            <div class="timeline-data">{{ envio.enviado_em | local_dt('%d/%m/%Y %H:%M:%S') }}</div>
+            <div class="timeline-detalhe cinza">{{ envio.erro_mensagem or 'Erro sem detalhes' }}</div>
+          </div>
+        </li>
+      {% endif %}
+
+      {% if envio.status in ('bounce', 'bounce_soft') %}
+        <li class="timeline-item {% if envio.status == 'bounce' %}erro{% else %}aviso{% endif %}">
+          <div class="timeline-icon">↩️</div>
+          <div class="timeline-conteudo">
+            <div class="timeline-titulo">
+              {% if envio.status == 'bounce' %}Bounce permanente — destinatário inválido{% else %}Bounce temporário — falha transitória{% endif %}
+            </div>
+            <div class="timeline-data">{{ envio.bounce_em | local_dt('%d/%m/%Y %H:%M:%S') }}</div>
+            <div class="timeline-detalhe cinza">
+              Código: <code>{{ envio.bounce_codigo or '—' }}</code><br>
+              {{ envio.bounce_diagnostico or 'sem diagnóstico' }}
+              {% if envio.status == 'bounce' %}
+              <br><br>📛 Contato marcado como <strong>inválido</strong> — não recebe mais envios.
+              {% endif %}
+            </div>
+          </div>
+        </li>
+      {% endif %}
+
+      {% if envio.status == 'ok' %}
+        <li class="timeline-item presumido">
+          <div class="timeline-icon">📬</div>
+          <div class="timeline-conteudo">
+            <div class="timeline-titulo">Entregue na caixa do destinatário <small>(presumido)</small></div>
+            <div class="timeline-data">—</div>
+            <div class="timeline-detalhe cinza">
+              Não temos confirmação direta de entrega. Como não chegou nenhuma DSN de bounce até agora,
+              assumimos que o servidor do destinatário aceitou a mensagem.
+            </div>
+          </div>
+        </li>
+      {% endif %}
+
+      {% for a in aberturas %}
+        <li class="timeline-item ok">
+          <div class="timeline-icon">👁️</div>
+          <div class="timeline-conteudo">
+            <div class="timeline-titulo">
+              {% if loop.first %}Primeira abertura{% else %}Aberto novamente <small class="cinza">({{ loop.index }}ª vez)</small>{% endif %}
+            </div>
+            <div class="timeline-data">{{ a.aberta_em | local_dt('%d/%m/%Y %H:%M:%S') }}</div>
+            <div class="timeline-detalhe cinza">
+              {% if a.ip %}IP: <code>{{ a.ip }}</code>{% endif %}
+              {% if a.user_agent %}<br><small>UA: {{ a.user_agent[:140] }}</small>{% endif %}
+              {% if loop.first %}
+                <br><br><small>⚠️ Gmail/Apple Mail proxy as imagens — o IP acima pode ser do servidor de proxy do provedor, não do destinatário real. A abertura também pode ter sido disparada por pré-fetch antiviral.</small>
+              {% endif %}
+            </div>
+          </div>
+        </li>
+      {% else %}
+        {% if envio.status == 'ok' %}
+        <li class="timeline-item aguardando">
+          <div class="timeline-icon">⏳</div>
+          <div class="timeline-conteudo">
+            <div class="timeline-titulo">Sem registro de abertura ainda</div>
+            <div class="timeline-data">—</div>
+            <div class="timeline-detalhe cinza">
+              {% if not tracking_url %}
+                <strong>O pixel não foi injetado</strong> nesse envio porque <code>TRACKING_BASE_URL</code> não está configurada.
+              {% else %}
+                Possíveis razões: (a) ainda não abriu, (b) cliente bloqueou imagens externas (Outlook por padrão),
+                (c) ad blocker bloqueou <code>/o/*.png</code>, (d) o destinatário leu mas o cliente não baixou a imagem.
+              {% endif %}
+            </div>
+          </div>
+        </li>
+        {% endif %}
+      {% endfor %}
+    </ol>
+  </section>
+</div>
+
+<style>
+  .timeline { list-style:none; padding:0; margin:24px 0; position:relative; }
+  .timeline::before {
+    content:""; position:absolute; left:18px; top:8px; bottom:8px;
+    width:2px; background:#e5e7eb;
+  }
+  .timeline-item {
+    position:relative; padding:12px 0 24px 56px; min-height:48px;
+  }
+  .timeline-icon {
+    position:absolute; left:0; top:8px; width:38px; height:38px;
+    border-radius:50%; background:#fff; border:2px solid #e5e7eb;
+    display:flex; align-items:center; justify-content:center; font-size:18px;
+    z-index:1;
+  }
+  .timeline-item.ok .timeline-icon { border-color:#10b981; background:#ecfdf5; }
+  .timeline-item.erro .timeline-icon { border-color:#ef4444; background:#fef2f2; }
+  .timeline-item.aviso .timeline-icon { border-color:#f59e0b; background:#fffbeb; }
+  .timeline-item.presumido .timeline-icon { border-color:#94a3b8; background:#f8fafc; opacity:.7; }
+  .timeline-item.aguardando .timeline-icon { border-color:#cbd5e1; background:#fff; opacity:.6; }
+  .timeline-titulo { font-weight:600; font-size:15px; margin-bottom:2px; }
+  .timeline-data { font-size:12px; color:#64748b; font-variant-numeric: tabular-nums; margin-bottom:6px; }
+  .timeline-detalhe { font-size:13px; line-height:1.5; }
+  .timeline-detalhe code { background:#f1f5f9; padding:1px 5px; border-radius:3px; font-size:12px; }
+  .ao-vivo {
+    display:inline-block; margin-left:8px; padding:2px 8px;
+    background:#dcfce7; color:#166534; border-radius:10px;
+    font-size:11px; font-weight:600; letter-spacing:.4px;
+    animation: pulso 1.4s ease-in-out infinite;
+  }
+  @keyframes pulso { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+</style>

@@ -16,6 +16,15 @@
 
 {% if erro %}<div class="alerta-erro">{{ erro }}</div>{% endif %}
 
+{% if not tracking_url %}
+<div class="alerta-erro" style="background:#fef3c7; color:#78350f; border-color:#f59e0b">
+  ⚠️ <strong>Pixel de abertura desativado</strong> — a env var <code>TRACKING_BASE_URL</code> não está configurada.<br>
+  O envio funciona, mas <strong>aberturas não serão registradas</strong> mesmo se o destinatário ler.
+  Para ativar: no EasyPanel, vá em <em>Service → Environment</em>, adicione
+  <code>TRACKING_BASE_URL=https://peritos.mspericias.com</code> (URL pública do app), salve e redeploye.
+</div>
+{% endif %}
+
 {% if not perfis %}
   <div class="alerta-erro">
     Você ainda não tem nenhum perfil de remetente.
