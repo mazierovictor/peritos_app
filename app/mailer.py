@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import random
+import re
 import smtplib
 import threading
 import time
@@ -20,6 +21,23 @@ from string import Template
 from .config import settings
 from .crypto import decrypt
 from .db import get_conn
+
+
+# Validação de formato de email antes de enviar
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+
+def _email_valido(email: str) -> bool:
+    return bool(email and _EMAIL_RE.match(email.strip()))
+
+
+# Erros SMTP que indicam que o destinatário não existe (devemos marcar como inválido)
+_RE_BOUNCE_PERMANENTE = re.compile(
+    r"550|551|553|554|user.*(unknown|not.*exist|not.*found)|mailbox.*(unavailable|not.*found)|no such user|recipient.*rejected",
+    re.IGNORECASE,
+)
+
+def _eh_bounce_permanente(mensagem_erro: str) -> bool:
+    return bool(_RE_BOUNCE_PERMANENTE.search(mensagem_erro))
 
 
 # Estado global das campanhas em andamento (uma de cada vez por perfil)
@@ -111,6 +129,16 @@ def _registrar_envio(contato_id: int, perfil_id: int, status: str, erro: str | N
         )
 
 
+def _marcar_contato_invalido(contato_id: int) -> None:
+    """Marca o contato como inválido para que ele não seja tentado novamente."""
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE contatos SET invalido = 1, observacao = COALESCE(observacao, '') "
+            "|| 'Marcado inválido após bounce permanente; ' WHERE id = ?",
+            (contato_id,),
+        )
+
+
 def _carregar_perfil(perfil_id: int) -> dict | None:
     with get_conn() as conn:
         row = conn.execute(
@@ -151,12 +179,22 @@ def _selecionar_contatos(filtros: dict, limite: int, perfil_id: int) -> list[dic
 def _enviar_um(server: smtplib.SMTP, perfil: dict, contato: dict) -> None:
     msg = MIMEMultipart("mixed")
     sender = f"{perfil['nome']} <{perfil['email_remetente']}>"
+    remetente_email = perfil["email_remetente"]
+
     msg["From"] = sender
     msg["To"] = contato["email"]
     msg["Subject"] = _aplicar_template(perfil["assunto"], contato, perfil)
     msg["Date"] = formatdate(localtime=True)
-    msg["Message-ID"] = make_msgid(domain=perfil["email_remetente"].split("@")[-1])
+    msg["Message-ID"] = make_msgid(domain=remetente_email.split("@")[-1])
     msg["Reply-To"] = sender
+
+    # Cabeçalhos de boa-cidadania anti-spam exigidos por Gmail/Yahoo (desde 2024):
+    # permite ao destinatário cancelar com um clique. Reduz chance de spam mark.
+    msg["List-Unsubscribe"] = f"<mailto:{remetente_email}?subject=Cancelar%20envios>"
+    msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+    msg["X-Mailer"] = "Peritos"
+    msg["Precedence"] = "bulk"
+    msg["Auto-Submitted"] = "auto-generated"
 
     corpo_txt = _aplicar_template(perfil["corpo_texto"], contato, perfil)
     corpo_html = _aplicar_template(perfil["corpo_html"], contato, perfil)
@@ -216,12 +254,28 @@ def _loop_envio(estado_obj: CampanhaEstado, filtros: dict) -> None:
             if estado_obj.cancelar:
                 estado_obj.mensagem = "Cancelado pelo usuário."
                 break
+
+            # Pular se o email tem formato inválido (evita bounce que prejudica reputação)
+            if not _email_valido(contato["email"]):
+                _registrar_envio(contato["id"], perfil["id"], "erro", "Email com formato inválido")
+                _marcar_contato_invalido(contato["id"])
+                estado_obj.erros += 1
+                continue
+
             try:
                 _enviar_um(server, perfil, contato)
                 _registrar_envio(contato["id"], perfil["id"], "ok", None)
                 estado_obj.enviados += 1
+            except smtplib.SMTPRecipientsRefused as e:
+                msg_erro = str(e)[:500]
+                _registrar_envio(contato["id"], perfil["id"], "erro", msg_erro)
+                _marcar_contato_invalido(contato["id"])
+                estado_obj.erros += 1
             except Exception as e:
-                _registrar_envio(contato["id"], perfil["id"], "erro", str(e)[:500])
+                msg_erro = str(e)[:500]
+                _registrar_envio(contato["id"], perfil["id"], "erro", msg_erro)
+                if _eh_bounce_permanente(msg_erro):
+                    _marcar_contato_invalido(contato["id"])
                 estado_obj.erros += 1
 
             pausa = 10 + random.uniform(0, 5)
