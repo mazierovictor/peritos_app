@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 {% block titulo %}Histórico — Peritos{% endblock %}
 {% block conteudo %}
-<h1>Histórico de envios <small class="cinza">({{ total }})</small></h1>
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">Auditoria</div>
+    <h1>Histórico de envios <span class="cinza" style="font-size:22px">· {{ total }}</span></h1>
+  </div>
+</header>
 
 <form method="get" action="/historico" class="filtros">
   <select name="perfil_id">
@@ -22,8 +27,14 @@
 </form>
 
 <div class="cards">
-  <div class="card"><div class="card-rotulo">Enviados (filtro atual)</div><div class="card-valor">{{ contagem.ok }}</div></div>
-  <div class="card"><div class="card-rotulo">Erros (filtro atual)</div><div class="card-valor">{{ contagem.erro }}</div></div>
+  <div class="card">
+    <div class="card-rotulo">Sucesso (filtro)</div>
+    <div class="card-valor">{{ contagem.ok }}</div>
+  </div>
+  <div class="card">
+    <div class="card-rotulo">Erro (filtro)</div>
+    <div class="card-valor">{{ contagem.erro }}</div>
+  </div>
 </div>
 
 <table class="tabela">
@@ -31,7 +42,7 @@
   <tbody>
     {% for r in registros %}
     <tr>
-      <td>{{ r.enviado_em }}</td>
+      <td><span class="cinza" style="font-variant-numeric: tabular-nums">{{ r.enviado_em }}</span></td>
       <td>{{ r.email }}</td>
       <td>{{ (r.cidade or r.comarca or '—') }} / {{ r.estado or '—' }}</td>
       <td>{{ (r.tribunal or '')|upper }}</td>
@@ -40,7 +51,7 @@
       <td><small class="cinza">{{ (r.erro_mensagem or '')[:80] }}</small></td>
     </tr>
     {% else %}
-    <tr><td colspan="7" class="vazio">Nenhum registro com esses filtros.</td></tr>
+    <tr><td colspan="7" class="vazio" style="padding:32px; text-align:center">Nenhum registro com esses filtros.</td></tr>
     {% endfor %}
   </tbody>
 </table>

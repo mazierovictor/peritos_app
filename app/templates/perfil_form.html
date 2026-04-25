@@ -1,8 +1,14 @@
 {% extends "base.html" %}
 {% block titulo %}{% if perfil %}Editar perfil{% else %}Novo perfil{% endif %} — Peritos{% endblock %}
 {% block conteudo %}
-<a href="/perfis" class="link-pequeno">← voltar</a>
-<h1>{% if perfil %}Editar perfil{% else %}Novo perfil{% endif %}</h1>
+<a href="/perfis" class="voltar">← Perfis</a>
+
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">{% if perfil %}Editando{% else %}Cadastrando{% endif %}</div>
+    <h1>{% if perfil %}{{ perfil.nome }}{% else %}Novo perfil{% endif %}</h1>
+  </div>
+</header>
 
 {% if erro %}<div class="alerta-erro">{{ erro }}</div>{% endif %}
 
@@ -45,11 +51,10 @@
       <textarea name="corpo_html" rows="14" required>{{ (perfil and perfil.corpo_html) or modelo_html_padrao }}</textarea>
     </label>
     <small class="cinza">
-      Variáveis disponíveis (use no formato <code>$nome</code>):
-      <code>$cidade</code>, <code>$comarca</code>, <code>$orgao</code>, <code>$estado</code>,
+      Variáveis disponíveis: <code>$cidade</code>, <code>$comarca</code>, <code>$orgao</code>, <code>$estado</code>,
       <code>$tribunal</code>, <code>$sistema</code>, <code>$remetente</code>, <code>$email_remetente</code>.
     </small>
-    <label>Assinatura (opcional, plain text)
+    <label>Assinatura (opcional)
       <textarea name="assinatura" rows="3">{{ (perfil and perfil.assinatura) or '' }}</textarea>
     </label>
   </fieldset>

@@ -1,21 +1,23 @@
 {% extends "base.html" %}
 {% block titulo %}Contatos — Peritos{% endblock %}
 {% block conteudo %}
-<h1>Contatos <small class="cinza">({{ total }})</small></h1>
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">Base</div>
+    <h1>Contatos <span class="cinza" style="font-size:22px">· {{ total }}</span></h1>
+    <p class="sub">Lista consolidada de e-mails coletados pelos scrapers. Use os filtros pra refinar e as ações em lote pra editar em massa.</p>
+  </div>
+</header>
 
 <form method="get" action="/contatos" class="filtros">
   <input type="text" name="q" value="{{ filtros.q or '' }}" placeholder="Buscar por email, cidade, comarca, órgão...">
   <select name="estado">
     <option value="">UF: todos</option>
-    {% for uf in ufs %}
-    <option value="{{ uf }}" {% if filtros.estado == uf %}selected{% endif %}>{{ uf }}</option>
-    {% endfor %}
+    {% for uf in ufs %}<option value="{{ uf }}" {% if filtros.estado == uf %}selected{% endif %}>{{ uf }}</option>{% endfor %}
   </select>
   <select name="tribunal">
     <option value="">Tribunal: todos</option>
-    {% for tj in tribunais %}
-    <option value="{{ tj }}" {% if filtros.tribunal == tj %}selected{% endif %}>{{ tj|upper }}</option>
-    {% endfor %}
+    {% for tj in tribunais %}<option value="{{ tj }}" {% if filtros.tribunal == tj %}selected{% endif %}>{{ tj|upper }}</option>{% endfor %}
   </select>
   <select name="invalido">
     <option value="">Status: todos</option>
@@ -33,26 +35,22 @@
   <input type="hidden" name="invalido" value="{{ filtros.invalido or '' }}">
 
   <div class="barra-lote">
-    <span id="qtd-sel"><strong>0</strong> selecionado(s)</span>
+    <span id="qtd-sel" class="cinza"><strong style="color:var(--ink)">0</strong> selecionado(s)</span>
     <button type="submit" formaction="/contatos/lote/excluir"
             class="btn-secundario erro" data-precisa-sel
             onclick="return confirm('Excluir os contatos selecionados?');">Excluir selecionados</button>
-    <button type="submit" formaction="/contatos/lote/invalidar"
-            class="btn-secundario" data-precisa-sel>Marcar inválidos</button>
-    <button type="submit" formaction="/contatos/lote/validar"
-            class="btn-secundario" data-precisa-sel>Reativar</button>
+    <button type="submit" formaction="/contatos/lote/invalidar" class="btn-secundario" data-precisa-sel>Marcar inválidos</button>
+    <button type="submit" formaction="/contatos/lote/validar"   class="btn-secundario" data-precisa-sel>Reativar</button>
 
     {% if total > 0 %}
     <span class="separador">|</span>
-    <span class="cinza">Para todos os <strong>{{ total }}</strong> que batem com o filtro:</span>
+    <span class="cinza">Para os <strong style="color:var(--ink)">{{ total }}</strong> do filtro:</span>
     <button type="submit" formaction="/contatos/lote-filtro/excluir"
             class="btn-secundario erro"
-            onclick="return confirm('ATENÇÃO: vai excluir TODOS os {{ total }} contatos do filtro atual. Confirmar?');">Excluir todos ({{ total }})</button>
-    <button type="submit" formaction="/contatos/lote-filtro/invalidar"
-            class="btn-secundario"
+            onclick="return confirm('ATENÇÃO: vai excluir TODOS os {{ total }} contatos do filtro atual. Confirmar?');">Excluir todos</button>
+    <button type="submit" formaction="/contatos/lote-filtro/invalidar" class="btn-secundario"
             onclick="return confirm('Marcar todos os {{ total }} como inválidos?');">Invalidar todos</button>
-    <button type="submit" formaction="/contatos/lote-filtro/validar"
-            class="btn-secundario"
+    <button type="submit" formaction="/contatos/lote-filtro/validar" class="btn-secundario"
             onclick="return confirm('Reativar todos os {{ total }}?');">Reativar todos</button>
     {% endif %}
   </div>
@@ -81,7 +79,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="8" class="vazio">Nenhum contato encontrado.</td></tr>
+      <tr><td colspan="8" class="vazio" style="padding:32px; text-align:center">Nenhum contato encontrado.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -106,8 +104,7 @@
       const n = [...rows].filter(c => c.checked).length;
       cnt.textContent = n;
       if (rows.length === 0) {
-        all.checked = false;
-        all.indeterminate = false;
+        all.checked = false; all.indeterminate = false;
       } else {
         all.checked = (n === rows.length);
         all.indeterminate = (n > 0 && n < rows.length);

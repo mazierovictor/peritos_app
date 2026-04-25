@@ -1,19 +1,25 @@
 {% extends "base.html" %}
 {% block titulo %}Painel — Peritos{% endblock %}
 {% block conteudo %}
-<h1>Olá, {{ user.nome }}</h1>
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">Olá de novo</div>
+    <h1>{{ user.nome }}</h1>
+    <p class="sub">Visão geral do dia: contatos na base, envios realizados e a última execução de scraper.</p>
+  </div>
+</header>
 
 <section class="cards">
   <div class="card">
     <div class="card-rotulo">Contatos na base</div>
-    <div class="card-valor">{{ total_contatos }}</div>
+    <div class="card-valor">{{ '{:,}'.format(total_contatos).replace(',', '.') }}</div>
   </div>
   <div class="card">
-    <div class="card-rotulo">E-mails enviados (total)</div>
-    <div class="card-valor">{{ total_envios }}</div>
+    <div class="card-rotulo">E-mails enviados</div>
+    <div class="card-valor">{{ '{:,}'.format(total_envios).replace(',', '.') }}</div>
   </div>
   <div class="card">
-    <div class="card-rotulo">E-mails enviados hoje</div>
+    <div class="card-rotulo">Enviados hoje</div>
     <div class="card-valor">{{ envios_hoje }}</div>
   </div>
 </section>
@@ -22,20 +28,14 @@
   <h2>Última execução de scraper</h2>
   {% if ultima_execucao %}
     <p>
-      <strong>{{ ultima_execucao.tribunal }}</strong>
-      — status: {{ ultima_execucao.status }}
+      <strong>{{ ultima_execucao.tribunal|upper }}</strong>
+      &middot; <span class="status status-{{ ultima_execucao.status }}">{{ ultima_execucao.status }}</span>
       {% if ultima_execucao.finalizado_em %}
-        — finalizado em {{ ultima_execucao.finalizado_em }}
+        &middot; <span class="cinza">finalizado em {{ ultima_execucao.finalizado_em }}</span>
       {% endif %}
     </p>
   {% else %}
-    <p class="vazio">Nenhuma execução ainda. Vá em <em>Scrapers</em> e dispare a primeira busca.</p>
+    <p class="vazio">Nenhuma execução ainda. Vá em <a href="/scrapers">Scrapers</a> e dispare a primeira busca.</p>
   {% endif %}
-</section>
-
-<section class="bloco aviso-fase">
-  <h2>Fase 1 concluída ✓</h2>
-  <p>Funcionando: login, banco de dados, painel.</p>
-  <p>Próximas fases: scrapers, base de contatos, perfil de remetente, disparo de campanha, histórico.</p>
 </section>
 {% endblock %}

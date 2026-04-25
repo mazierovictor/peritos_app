@@ -1,10 +1,16 @@
 {% extends "base.html" %}
 {% block titulo %}Agendamentos — Peritos{% endblock %}
 {% block conteudo %}
-<h1>Agendamentos</h1>
-<p class="vazio">Configure quando os scrapers devem rodar automaticamente. Horário em <strong>Brasília</strong>.</p>
-
-<a href="/agendamentos/novo" class="btn-primario">+ Novo agendamento</a>
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">Automação</div>
+    <h1>Agendamentos</h1>
+    <p class="sub">Configure quando os scrapers e campanhas devem rodar automaticamente. Horário em <strong>Brasília</strong>.</p>
+  </div>
+  <div class="pagina-header-acoes">
+    <a href="/agendamentos/novo" class="btn-primario">+ Novo agendamento</a>
+  </div>
+</header>
 
 <table class="tabela espacada">
   <thead>
@@ -19,12 +25,12 @@
   </thead>
   <tbody>
     {% for a in agendamentos %}
-    <tr>
+    <tr {% if not a.ativo %}class="inativa"{% endif %}>
       <td><strong>{{ a.nome or '(sem nome)' }}</strong></td>
       <td>{{ a.o_que }}</td>
       <td>{{ a.descricao }}</td>
-      <td>{{ a.proxima or '—' }}</td>
-      <td>{% if a.ativo %}✓{% else %}—{% endif %}</td>
+      <td><span class="cinza" style="font-variant-numeric: tabular-nums">{{ a.proxima or '—' }}</span></td>
+      <td>{% if a.ativo %}<span class="status status-ok">ativo</span>{% else %}<span class="status">desativado</span>{% endif %}</td>
       <td class="acoes">
         <form method="post" action="/agendamentos/{{ a.id }}/toggle" class="inline">
           <button type="submit" class="btn-link">{% if a.ativo %}desativar{% else %}ativar{% endif %}</button>
@@ -35,7 +41,7 @@
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="6" class="vazio">Nenhum agendamento configurado.</td></tr>
+    <tr><td colspan="6" class="vazio" style="padding:32px; text-align:center">Nenhum agendamento configurado.</td></tr>
     {% endfor %}
   </tbody>
 </table>

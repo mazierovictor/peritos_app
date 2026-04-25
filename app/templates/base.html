@@ -5,32 +5,94 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block titulo %}Peritos{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><text x='50%25' y='54' text-anchor='middle' font-family='Georgia,serif' font-style='italic' font-size='56' fill='%231e4032'>P</text></svg>">
   <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
 </head>
-<body>
-  {% if user %}
-  <nav class="topo">
-    <div class="topo-marca">Peritos</div>
-    <div class="topo-links">
-      <a href="/painel">Painel</a>
-      <a href="/scrapers">Scrapers</a>
-      <a href="/contatos">Contatos</a>
-      <a href="/perfis">Perfis</a>
-      <a href="/campanhas">Campanhas</a>
-      <a href="/historico">Histórico</a>
-      <a href="/agendamentos">Agendamentos</a>
-    </div>
-    <div class="topo-usuario">
-      <span>{{ user.nome }}</span>
-      <form method="post" action="/logout" class="inline">
-        <button type="submit" class="btn-link">Sair</button>
-      </form>
-    </div>
-  </nav>
-  {% endif %}
+<body class="{% if user %}com-shell{% else %}tela-login{% endif %}">
 
-  <main class="conteudo">
+{% if user %}
+{% set caminho = request.url.path %}
+<aside class="shell-sidebar">
+  <div class="brand">
+    <span class="brand-mark">P</span>
+    <span class="brand-name">Peritos</span>
+    <span class="brand-sub">Painel</span>
+  </div>
+
+  <nav>
+    <ul class="nav">
+      <li class="nav-section">Trabalho</li>
+      <li>
+        <a href="/painel" class="{% if caminho == '/painel' %}ativa{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+          Painel
+        </a>
+      </li>
+      <li>
+        <a href="/scrapers" class="{% if caminho.startswith('/scrapers') %}ativa{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          Scrapers
+        </a>
+      </li>
+      <li>
+        <a href="/contatos" class="{% if caminho.startswith('/contatos') %}ativa{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Contatos
+        </a>
+      </li>
+
+      <li class="nav-section">Envio</li>
+      <li>
+        <a href="/perfis" class="{% if caminho.startswith('/perfis') %}ativa{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="m17 11 2 2 4-4"/></svg>
+          Perfis de remetente
+        </a>
+      </li>
+      <li>
+        <a href="/campanhas" class="{% if caminho.startswith('/campanhas') %}ativa{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+          Campanhas
+        </a>
+      </li>
+      <li>
+        <a href="/historico" class="{% if caminho.startswith('/historico') %}ativa{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>
+          Histórico
+        </a>
+      </li>
+
+      <li class="nav-section">Sistema</li>
+      <li>
+        <a href="/agendamentos" class="{% if caminho.startswith('/agendamentos') %}ativa{% endif %}">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M12 14v3l2 1"/></svg>
+          Agendamentos
+        </a>
+      </li>
+    </ul>
+  </nav>
+
+  <div class="user-rodape">
+    <div class="user-avatar">{{ user.nome[0]|upper }}</div>
+    <div class="user-info">
+      <div class="user-nome">{{ user.nome }}</div>
+      <div class="user-acao">
+        <form method="post" action="/logout" class="inline">
+          <button type="submit" class="btn-link">Sair</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<main class="shell-main">
+  <div class="pagina">
     {% block conteudo %}{% endblock %}
-  </main>
+  </div>
+</main>
+
+{% else %}
+  {% block conteudo %}{% endblock %}
+{% endif %}
+
 </body>
 </html>

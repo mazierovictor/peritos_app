@@ -1,32 +1,38 @@
 {% extends "base.html" %}
 {% block titulo %}Novo agendamento — Peritos{% endblock %}
 {% block conteudo %}
-<a href="/agendamentos" class="link-pequeno">← voltar</a>
-<h1>Novo agendamento</h1>
+<a href="/agendamentos" class="voltar">← Agendamentos</a>
+
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">Cadastrando</div>
+    <h1>Novo agendamento</h1>
+  </div>
+</header>
 
 {% if erro %}<div class="alerta-erro">{{ erro }}</div>{% endif %}
 
 <form method="post" action="/agendamentos/novo" class="form-largo">
-  <label>Nome do agendamento
-    <input type="text" name="nome" placeholder="Ex.: TJMG diário 09h" required>
-  </label>
-
-  <label>O que esse agendamento faz?
-    <select name="tipo" id="campo_tipo" required>
-      <option value="scraper">Buscar contatos (rodar scraper)</option>
-      <option value="campanha">Disparar campanha de e-mail</option>
-    </select>
-  </label>
+  <fieldset>
+    <legend>Identificação</legend>
+    <label>Nome do agendamento
+      <input type="text" name="nome" placeholder="Ex.: Campanha TJMG manhã" required>
+    </label>
+    <label>O que esse agendamento faz?
+      <select name="tipo" id="campo_tipo" required>
+        <option value="scraper">Buscar contatos (rodar scraper)</option>
+        <option value="campanha">Disparar campanha de e-mail</option>
+      </select>
+    </label>
+  </fieldset>
 
   <fieldset id="bloco_scraper">
     <legend>Scraper</legend>
     <label>Tribunal
       <select name="alvo">
-        {% for s in scrapers %}
-        {% if not s.manual %}
+        {% for s in scrapers %}{% if not s.manual %}
         <option value="{{ s.sigla }}">{{ s.sigla|upper }} — {{ s.nome }}</option>
-        {% endif %}
-        {% endfor %}
+        {% endif %}{% endfor %}
       </select>
     </label>
   </fieldset>

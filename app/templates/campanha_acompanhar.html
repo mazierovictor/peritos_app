@@ -1,17 +1,24 @@
 {% extends "base.html" %}
 {% block titulo %}Acompanhar campanha — Peritos{% endblock %}
 {% block conteudo %}
-<a href="/campanhas" class="link-pequeno">← voltar</a>
-<h1>Campanha em andamento</h1>
+<a href="/campanhas" class="voltar">← Campanhas</a>
+
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">Em execução</div>
+    <h1>Campanha</h1>
+  </div>
+  {% if estado and not estado.terminado %}
+  <div class="pagina-header-acoes">
+    <form method="post" action="/campanhas/cancelar/{{ perfil_id }}" class="inline" onsubmit="return confirm('Cancelar a campanha em andamento?');">
+      <button type="submit" class="btn-secundario erro">Cancelar campanha</button>
+    </form>
+  </div>
+  {% endif %}
+</header>
 
 <div id="estado"
      {% if estado and not estado.terminado %}hx-get="/campanhas/estado/{{ perfil_id }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
   {% include "_campanha_estado.html" %}
 </div>
-
-{% if estado and not estado.terminado %}
-<form method="post" action="/campanhas/cancelar/{{ perfil_id }}" class="inline" onsubmit="return confirm('Cancelar a campanha em andamento?');">
-  <button type="submit" class="btn-secundario">Cancelar</button>
-</form>
-{% endif %}
 {% endblock %}

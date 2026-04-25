@@ -2,8 +2,14 @@
 {% block titulo %}Entrar — Peritos{% endblock %}
 {% block conteudo %}
 <div class="caixa-login">
-  <h1>Entrar</h1>
+  <div class="marca-grande">
+    <div class="mark">P</div>
+    <span class="nome">Peritos</span>
+    <span class="tag">Painel de Operações</span>
+  </div>
+
   {% if erro %}<div class="alerta-erro">{{ erro }}</div>{% endif %}
+
   <form method="post" action="/login">
     <label>
       Email
@@ -13,7 +19,7 @@
       Senha
       <input type="password" name="senha" required>
     </label>
-    <button type="submit" class="btn-primario">Entrar</button>
+    <button type="submit" class="btn-primario">Entrar →</button>
   </form>
 </div>
 {% endblock %}

@@ -1,8 +1,14 @@
 {% extends "base.html" %}
 {% block titulo %}Configurar {{ info.sigla|upper }} — Peritos{% endblock %}
 {% block conteudo %}
-<a href="/scrapers" class="link-pequeno">← voltar</a>
-<h1>Configurar {{ info.sigla|upper }} — {{ info.nome }}</h1>
+<a href="/scrapers" class="voltar">← Scrapers</a>
+
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">Configurar scraper</div>
+    <h1>{{ info.sigla|upper }} <span class="cinza" style="font-size:22px">— {{ info.nome }}</span></h1>
+  </div>
+</header>
 
 {% if not schema.disponivel %}
 <div class="bloco">
@@ -11,7 +17,7 @@
 
 {% else %}
 
-{% if salvo %}<div class="bloco" style="border-left:4px solid #16a34a"><strong>Configuração salva.</strong> Vai valer na próxima execução.</div>{% endif %}
+{% if salvo %}<div class="alerta-ok"><strong>Configuração salva.</strong> Vai valer na próxima execução.</div>{% endif %}
 
 <form method="post" action="/scrapers/{{ info.sigla }}/config" class="form-largo">
   <fieldset>
@@ -20,15 +26,11 @@
     <label>Uma palavra-chave por linha
       <textarea name="palavras_chave" rows="14" placeholder="Ex.:&#10;vara civel&#10;vara unica&#10;secretaria">{{ palavras_atuais|join('\n') }}</textarea>
     </label>
-    <small class="cinza">
-      A lógica do scraper não é alterada — apenas esta lista é substituída pelo que você cadastrar.
-      <strong>Em branco</strong> = volta ao padrão original do scraper.
-    </small>
+    <small class="cinza">A lógica do scraper não é alterada — apenas esta lista é substituída pelo que você cadastrar. <strong>Em branco</strong> = volta ao padrão original.</small>
   </fieldset>
 
-  <div style="display:flex; gap:12px; align-items:center">
+  <div style="display:flex; gap:10px; align-items:center; padding-top: 18px; border-top: 1px solid var(--rule);">
     <button type="submit" class="btn-primario">Salvar configuração</button>
-
     {% if usando_personalizado %}
       <button type="submit" formaction="/scrapers/{{ info.sigla }}/config/reset"
               class="btn-secundario"
@@ -41,8 +43,8 @@
 
 <section class="bloco" style="margin-top:24px">
   <h2>Lista padrão original</h2>
-  <p class="cinza">Esta é a lista que vem no código do scraper. Se você apagar tudo acima ou clicar "Restaurar padrão", esta é a lista que vai ser usada.</p>
-  <ul>
+  <p class="cinza" style="font-size:13px">Esta é a lista que vem no código do scraper. Se você apagar tudo acima ou clicar "Restaurar padrão", esta é a lista que vai ser usada.</p>
+  <ul class="lista-limpa" style="margin-top:12px">
     {% for p in defaults %}<li><code>{{ p }}</code></li>{% endfor %}
   </ul>
 </section>

@@ -4,14 +4,23 @@
   <p class="vazio">Sem informação de execução.</p>
   {% else %}
   <div class="cards">
-    <div class="card"><div class="card-rotulo">Status</div><div class="card-valor pequeno">
-      {% if estado.terminado %}<span class="status status-ok">terminado</span>
-      {% elif estado.iniciado %}<span class="status status-rodando">enviando</span>
-      {% else %}<span class="status">conectando</span>{% endif %}
-    </div></div>
-    <div class="card"><div class="card-rotulo">Enviados</div><div class="card-valor">{{ estado.enviados }} / {{ estado.total_alvo }}</div></div>
-    <div class="card"><div class="card-rotulo">Erros</div><div class="card-valor">{{ estado.erros }}</div></div>
+    <div class="card">
+      <div class="card-rotulo">Status</div>
+      <div class="card-valor pequeno">
+        {% if estado.terminado %}<span class="status status-ok">terminado</span>
+        {% elif estado.iniciado %}<span class="status status-rodando">enviando</span>
+        {% else %}<span class="status">conectando</span>{% endif %}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-rotulo">Enviados</div>
+      <div class="card-valor"><span style="font-variant-numeric: tabular-nums">{{ estado.enviados }}</span><span class="cinza" style="font-size:18px"> / {{ estado.total_alvo }}</span></div>
+    </div>
+    <div class="card">
+      <div class="card-rotulo">Erros</div>
+      <div class="card-valor">{{ estado.erros }}</div>
+    </div>
   </div>
-  {% if estado.mensagem %}<p><strong>{{ estado.mensagem }}</strong></p>{% endif %}
+  {% if estado.mensagem %}<div class="bloco"><strong>{{ estado.mensagem }}</strong></div>{% endif %}
   {% endif %}
 </div>

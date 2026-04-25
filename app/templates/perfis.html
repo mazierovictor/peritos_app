@@ -1,10 +1,16 @@
 {% extends "base.html" %}
 {% block titulo %}Perfis de Remetente — Peritos{% endblock %}
 {% block conteudo %}
-<h1>Perfis de Remetente</h1>
-<p class="vazio">Cada perfil é um remetente diferente (Victor, Tati, etc.) com seu próprio e-mail SMTP, currículo e modelo de mensagem.</p>
-
-<a href="/perfis/novo" class="btn-primario">+ Novo perfil</a>
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">Identidades</div>
+    <h1>Perfis de remetente</h1>
+    <p class="sub">Cada perfil é um remetente diferente (Victor, Tati, etc.) com seu próprio Gmail, currículo e modelo de mensagem.</p>
+  </div>
+  <div class="pagina-header-acoes">
+    <a href="/perfis/novo" class="btn-primario">+ Novo perfil</a>
+  </div>
+</header>
 
 <table class="tabela espacada">
   <thead><tr><th>Nome</th><th>E-mail</th><th>Limite diário</th><th>Currículo</th><th>Ações</th></tr></thead>
@@ -13,8 +19,8 @@
     <tr>
       <td><strong>{{ p.nome }}</strong></td>
       <td>{{ p.email_remetente }}</td>
-      <td>{{ p.limite_diario }}/dia</td>
-      <td>{% if p.curriculo_path %}✓{% else %}—{% endif %}</td>
+      <td><span style="font-variant-numeric: tabular-nums">{{ p.limite_diario }}/dia</span></td>
+      <td>{% if p.curriculo_path %}<span class="status status-ok">presente</span>{% else %}—{% endif %}</td>
       <td class="acoes">
         <a href="/perfis/{{ p.id }}/editar" class="btn-link">editar</a>
         <form method="post" action="/perfis/{{ p.id }}/excluir" class="inline" onsubmit="return confirm('Excluir perfil?');">
@@ -23,7 +29,7 @@
       </td>
     </tr>
     {% else %}
-    <tr><td colspan="5" class="vazio">Nenhum perfil cadastrado ainda.</td></tr>
+    <tr><td colspan="5" class="vazio" style="padding:32px; text-align:center">Nenhum perfil cadastrado ainda.</td></tr>
     {% endfor %}
   </tbody>
 </table>

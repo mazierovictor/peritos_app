@@ -1,7 +1,13 @@
 {% extends "base.html" %}
 {% block titulo %}Campanhas — Peritos{% endblock %}
 {% block conteudo %}
-<h1>Disparar campanha</h1>
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">Disparo</div>
+    <h1>Nova campanha</h1>
+    <p class="sub">Escolha um perfil de remetente, filtre os contatos e dispare. A execução respeita o limite diário e faz pausa entre envios.</p>
+  </div>
+</header>
 
 {% if not perfis %}
 <div class="alerta-erro">Você precisa <a href="/perfis/novo">criar um perfil de remetente</a> antes de disparar uma campanha.</div>
@@ -20,7 +26,7 @@
   </fieldset>
 
   <fieldset>
-    <legend>Quem recebe (filtros)</legend>
+    <legend>Quem recebe</legend>
     <div class="grade-2">
       <label>UF
         <select name="estado">
@@ -37,15 +43,15 @@
     </div>
     <label>Quantidade máxima nesta execução
       <input type="number" name="total_alvo" value="50" min="1" max="500" required>
-      <small class="cinza">Será limitada ao limite diário do perfil também.</small>
+      <small class="cinza">Será limitada também pelo limite diário do perfil.</small>
     </label>
   </fieldset>
 
-  <button type="submit" class="btn-primario">Iniciar campanha</button>
+  <button type="submit" class="btn-primario">Iniciar campanha →</button>
 </form>
 
 {% if execucoes_ativas %}
-<section class="bloco">
+<section class="bloco" style="margin-top:24px">
   <h2>Em andamento</h2>
   <ul class="lista-limpa">
     {% for e in execucoes_ativas %}
