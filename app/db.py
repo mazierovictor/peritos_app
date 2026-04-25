@@ -68,7 +68,6 @@ CREATE TABLE IF NOT EXISTS envios (
 );
 CREATE INDEX IF NOT EXISTS idx_envios_contato ON envios(contato_id);
 CREATE INDEX IF NOT EXISTS idx_envios_data ON envios(enviado_em);
-CREATE INDEX IF NOT EXISTS idx_envios_message_id ON envios(message_id);
 
 CREATE TABLE IF NOT EXISTS bounce_runs (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
