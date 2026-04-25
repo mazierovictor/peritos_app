@@ -64,14 +64,44 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+_ACCEPT_LANG = "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
+
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/121.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": _UA,
     "Accept": "application/json",
+    "Accept-Language": _ACCEPT_LANG,
+    "Accept-Encoding": "gzip, deflate, br",
+    "Referer": f"{BASE_URL}/unidades/",
+    "Origin": BASE_URL,
+    "Connection": "keep-alive",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+    "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
     "x-nextjs-data": "1",
+}
+
+HEADERS_HTML = {
+    "User-Agent": _UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": _ACCEPT_LANG,
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
 }
 
 
@@ -104,10 +134,7 @@ def get_build_id(session: requests.Session) -> str:
     O buildId muda a cada deploy do site.
     """
     log.info("Obtendo buildId do Next.js em %s/unidades/ …", BASE_URL)
-    resp = session.get(f"{BASE_URL}/unidades/", headers={
-        "User-Agent": HEADERS["User-Agent"],
-        "Accept": "text/html",
-    }, timeout=30)
+    resp = session.get(f"{BASE_URL}/unidades/", headers=HEADERS_HTML, timeout=30)
     resp.raise_for_status()
 
     # Procura pelo JSON embutido na tag <script id="__NEXT_DATA__">
