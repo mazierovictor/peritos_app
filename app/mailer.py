@@ -103,10 +103,14 @@ def _aplicar_template(template: str, contato: dict, perfil: dict) -> str:
 
 
 def _enviados_hoje(perfil_id: int) -> int:
+    """Conta envios de hoje para o perfil, IGNORANDO envios de teste."""
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) c FROM envios WHERE perfil_remetente_id = ? "
-            "AND status = 'ok' AND date(enviado_em) = date('now', 'localtime')",
+            "SELECT COUNT(*) c FROM envios e "
+            "JOIN contatos c ON c.id = e.contato_id "
+            "WHERE e.perfil_remetente_id = ? AND e.status = 'ok' "
+            "AND c.tribunal != '_teste' "
+            "AND date(e.enviado_em) = date('now', 'localtime')",
             (perfil_id,),
         ).fetchone()
     return row["c"]
@@ -318,6 +322,102 @@ def _loop_envio(estado_obj: CampanhaEstado, filtros: dict) -> None:
         except Exception:
             pass
         estado_obj.terminado = True
+
+
+def _achar_ou_criar_contato_teste(email: str) -> int:
+    """Cria/reusa um contato com tribunal='_teste' para envios de teste."""
+    email = (email or "").strip()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id FROM contatos WHERE email = ? AND tribunal = '_teste' LIMIT 1",
+            (email,),
+        ).fetchone()
+        if row:
+            # zera o flag de invalido caso o contato tenha levado bounce numa rodada anterior
+            conn.execute(
+                "UPDATE contatos SET invalido = 0, observacao = 'Envio de teste' WHERE id = ?",
+                (row["id"],),
+            )
+            return row["id"]
+        cur = conn.execute(
+            "INSERT INTO contatos (email, tribunal, observacao) VALUES (?, '_teste', 'Envio de teste')",
+            (email,),
+        )
+        return cur.lastrowid
+
+
+def enviar_teste(
+    perfil_id: int, email_destino: str,
+    assunto: str, corpo_texto: str, corpo_html: str,
+) -> tuple[int, str | None]:
+    """
+    Envia uma única mensagem de teste com tracking pixel ativo.
+    Retorna (envio_id, mensagem_de_erro). Se sucesso, erro é None.
+    NÃO conta no limite diário.
+    """
+    perfil = _carregar_perfil(perfil_id)
+    if not perfil:
+        return 0, "Perfil não encontrado."
+
+    if not _email_valido(email_destino):
+        return 0, "E-mail de destino com formato inválido."
+
+    contato_id = _achar_ou_criar_contato_teste(email_destino)
+    contato = {
+        "id": contato_id, "email": email_destino,
+        "cidade": "TESTE", "comarca": "TESTE", "orgao": "TESTE",
+        "estado": "—", "tribunal": "_teste", "sistema": "TESTE",
+    }
+
+    # Cria um perfil temporário com os campos override (assunto/corpo)
+    perfil_override = dict(perfil)
+    perfil_override["assunto"]     = assunto
+    perfil_override["corpo_texto"] = corpo_texto
+    perfil_override["corpo_html"]  = corpo_html
+
+    try:
+        senha = decrypt(perfil["smtp_senha_enc"])
+    except Exception as e:
+        return 0, f"Falha ao decifrar senha SMTP: {e}"
+
+    try:
+        server = smtplib.SMTP(perfil["smtp_host"], perfil["smtp_port"], timeout=30)
+        server.starttls()
+        server.login(perfil["email_remetente"], senha)
+    except Exception as e:
+        return 0, f"Falha SMTP (login): {e}"
+
+    token = secrets.token_urlsafe(16)
+    try:
+        msg_id = _enviar_um(server, perfil_override, contato, token)
+        _registrar_envio(contato_id, perfil_id, "ok", None, msg_id, token)
+    except smtplib.SMTPRecipientsRefused as e:
+        msg = str(e)[:500]
+        _registrar_envio(contato_id, perfil_id, "erro", msg, None, token)
+        try: server.quit()
+        except Exception: pass
+        return _ultimo_envio_id_teste(contato_id, perfil_id), f"Destinatário recusado: {msg}"
+    except Exception as e:
+        msg = str(e)[:500]
+        _registrar_envio(contato_id, perfil_id, "erro", msg, None, token)
+        try: server.quit()
+        except Exception: pass
+        return _ultimo_envio_id_teste(contato_id, perfil_id), f"Erro no envio: {msg}"
+
+    try: server.quit()
+    except Exception: pass
+
+    return _ultimo_envio_id_teste(contato_id, perfil_id), None
+
+
+def _ultimo_envio_id_teste(contato_id: int, perfil_id: int) -> int:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id FROM envios WHERE contato_id = ? AND perfil_remetente_id = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (contato_id, perfil_id),
+        ).fetchone()
+    return row["id"] if row else 0
 
 
 def disparar(perfil_id: int, total_alvo: int, filtros: dict) -> CampanhaEstado:

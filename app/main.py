@@ -123,10 +123,12 @@ async def _login_required_handler(_: Request, __: LoginRequired):
 def _ufs_e_tribunais() -> tuple[list[str], list[str]]:
     with get_conn() as conn:
         ufs = [r["estado"] for r in conn.execute(
-            "SELECT DISTINCT estado FROM contatos WHERE estado IS NOT NULL ORDER BY estado"
+            "SELECT DISTINCT estado FROM contatos WHERE estado IS NOT NULL "
+            "AND tribunal != '_teste' ORDER BY estado"
         )]
         tribunais = [r["tribunal"] for r in conn.execute(
-            "SELECT DISTINCT tribunal FROM contatos WHERE tribunal IS NOT NULL ORDER BY tribunal"
+            "SELECT DISTINCT tribunal FROM contatos WHERE tribunal IS NOT NULL "
+            "AND tribunal != '_teste' ORDER BY tribunal"
         )]
     return ufs, tribunais
 
@@ -177,7 +179,9 @@ def logout(request: Request):
 @app.get("/painel", response_class=HTMLResponse)
 def painel(request: Request, user: dict = Depends(requer_login)):
     with get_conn() as conn:
-        total_contatos = conn.execute("SELECT COUNT(*) c FROM contatos").fetchone()["c"]
+        total_contatos = conn.execute(
+            "SELECT COUNT(*) c FROM contatos WHERE tribunal != '_teste'"
+        ).fetchone()["c"]
         total_envios = conn.execute("SELECT COUNT(*) c FROM envios WHERE status = 'ok'").fetchone()["c"]
         envios_hoje = conn.execute(
             "SELECT COUNT(*) c FROM envios WHERE status = 'ok' "
@@ -705,6 +709,56 @@ def campanhas_cancelar(perfil_id: int, user: dict = Depends(requer_login)):
     return RedirectResponse(url=f"/campanhas/acompanhar/{perfil_id}", status_code=303)
 
 
+# ─── Envio de teste ────────────────────────────────────────────────────
+
+@app.get("/teste", response_class=HTMLResponse)
+def teste_form(request: Request, user: dict = Depends(requer_login),
+               perfil_id: str = "", erro: str | None = None):
+    with get_conn() as conn:
+        perfis = [dict(r) for r in conn.execute(
+            "SELECT * FROM perfis_remetente WHERE usuario_id = ? ORDER BY nome",
+            (user["id"],),
+        )]
+    perfil_sel = None
+    if perfil_id:
+        for p in perfis:
+            if str(p["id"]) == perfil_id:
+                perfil_sel = p
+                break
+    if not perfil_sel and perfis:
+        perfil_sel = perfis[0]
+    return templates.TemplateResponse("teste.html", {
+        "request": request, "user": user,
+        "perfis": perfis, "perfil_sel": perfil_sel, "erro": erro,
+    })
+
+
+@app.post("/teste/enviar")
+def teste_enviar(
+    user: dict = Depends(requer_login),
+    perfil_id: int = Form(...),
+    email_destino: str = Form(...),
+    assunto: str = Form(...),
+    corpo_texto: str = Form(...),
+    corpo_html: str = Form(...),
+):
+    with get_conn() as conn:
+        own = conn.execute(
+            "SELECT 1 FROM perfis_remetente WHERE id = ? AND usuario_id = ?",
+            (perfil_id, user["id"]),
+        ).fetchone()
+    if not own:
+        raise HTTPException(403)
+
+    envio_id, erro = mailer.enviar_teste(
+        perfil_id, email_destino, assunto, corpo_texto, corpo_html,
+    )
+    if erro and not envio_id:
+        params = urlencode({"perfil_id": perfil_id, "erro": erro})
+        return RedirectResponse(url=f"/teste?{params}", status_code=303)
+    return RedirectResponse(url=f"/historico/envio/{envio_id}", status_code=303)
+
+
 # ─── Histórico ─────────────────────────────────────────────────────────
 
 @app.get("/historico", response_class=HTMLResponse)
@@ -845,7 +899,7 @@ def historico_por_vara(
         )]
     perfis_ids = [str(p["id"]) for p in perfis]
 
-    where = ["1=1"]
+    where = ["c.tribunal != '_teste'"]
     args: list = []
     if perfis_ids:
         where.append(f"e.perfil_remetente_id IN ({','.join('?' * len(perfis_ids))})")

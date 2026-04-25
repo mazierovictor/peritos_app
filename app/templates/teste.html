@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block titulo %}Enviar teste — Peritos{% endblock %}
+{% block conteudo %}
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">Sandbox</div>
+    <h1>Envio de teste</h1>
+    <p class="sub">
+      Manda 1 e-mail isolado pra você mesmo (ou outro endereço) usando um perfil real.
+      Útil pra validar SMTP, ver como o template chega na caixa, testar bounce
+      (com endereço inválido) e abertura (com pixel ativo).
+      <strong>Não conta no limite diário.</strong>
+    </p>
+  </div>
+</header>
+
+{% if erro %}<div class="alerta-erro">{{ erro }}</div>{% endif %}
+
+{% if not perfis %}
+  <div class="alerta-erro">
+    Você ainda não tem nenhum perfil de remetente.
+    <a href="/perfis/novo">Crie um agora</a>.
+  </div>
+{% else %}
+
+<form method="get" action="/teste" class="filtros" style="margin-bottom:16px">
+  <label style="margin:0">Perfil:&nbsp;
+    <select name="perfil_id" onchange="this.form.submit()">
+      {% for p in perfis %}
+      <option value="{{ p.id }}" {% if perfil_sel and perfil_sel.id == p.id %}selected{% endif %}>
+        {{ p.nome }} ({{ p.email_remetente }})
+      </option>
+      {% endfor %}
+    </select>
+  </label>
+  <small class="cinza">Trocar de perfil recarrega o template abaixo.</small>
+</form>
+
+<form method="post" action="/teste/enviar" class="form-largo">
+  <input type="hidden" name="perfil_id" value="{{ perfil_sel.id }}">
+
+  <fieldset>
+    <legend>Destinatário do teste</legend>
+    <label>E-mail
+      <input type="email" name="email_destino" required
+             placeholder="seuemail@gmail.com">
+      <small class="cinza">
+        Dicas:<br>
+        • <strong>Seu próprio e-mail</strong> → testa que o SMTP funciona, vê como o template chega, e (abrindo) ativa o pixel.<br>
+        • <strong>Endereço inexistente</strong> tipo <code>nao-existe-12345@gmail.com</code> → testa o bounce 5.x.x (vem em alguns minutos).<br>
+        • Para testar abertura, abra o e-mail num cliente que carrega imagens (Gmail no desktop carrega por padrão).
+      </small>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Mensagem (pré-preenchida com o template do perfil)</legend>
+    <label>Assunto
+      <input type="text" name="assunto" required value="{{ perfil_sel.assunto }}">
+    </label>
+    <label>Corpo (texto puro)
+      <textarea name="corpo_texto" id="corpo_texto" rows="10" required>{{ perfil_sel.corpo_texto }}</textarea>
+    </label>
+    <details>
+      <summary class="btn-link" style="cursor:pointer; padding:8px 0">▸ HTML (avançado)</summary>
+      <textarea name="corpo_html" id="corpo_html" rows="10" required style="margin-top:8px">{{ perfil_sel.corpo_html }}</textarea>
+      <small class="cinza">O pixel de tracking é injetado automaticamente antes de <code>&lt;/body&gt;</code>.</small>
+    </details>
+    <small class="cinza">
+      Variáveis tipo <code>$cidade</code>, <code>$comarca</code>, <code>$tribunal</code> serão substituídas por <strong>"TESTE"</strong> nesse envio.
+    </small>
+  </fieldset>
+
+  <button type="submit" class="btn-primario">Enviar teste agora</button>
+</form>
+
+{% endif %}
+{% endblock %}
