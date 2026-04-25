@@ -253,16 +253,7 @@ def scrapers_run_log(run_id: int, user: dict = Depends(requer_login)):
 
 # ─── Contatos ──────────────────────────────────────────────────────────
 
-@app.get("/contatos", response_class=HTMLResponse)
-def contatos_lista(
-    request: Request,
-    user: dict = Depends(requer_login),
-    q: str = "", estado: str = "", tribunal: str = "", invalido: str = "",
-    pagina: int = 1,
-):
-    por_pagina = 50
-    pagina = max(1, pagina)
-
+def _where_contatos(q: str, estado: str, tribunal: str, invalido: str) -> tuple[str, list]:
     where = ["1=1"]
     args: list = []
     if q:
@@ -275,7 +266,20 @@ def contatos_lista(
         where.append("tribunal = ?"); args.append(tribunal)
     if invalido in ("0", "1"):
         where.append("invalido = ?"); args.append(int(invalido))
-    sql_where = " AND ".join(where)
+    return " AND ".join(where), args
+
+
+@app.get("/contatos", response_class=HTMLResponse)
+def contatos_lista(
+    request: Request,
+    user: dict = Depends(requer_login),
+    q: str = "", estado: str = "", tribunal: str = "", invalido: str = "",
+    pagina: int = 1,
+):
+    por_pagina = 50
+    pagina = max(1, pagina)
+
+    sql_where, args = _where_contatos(q, estado, tribunal, invalido)
 
     with get_conn() as conn:
         total = conn.execute(f"SELECT COUNT(*) c FROM contatos WHERE {sql_where}", args).fetchone()["c"]
@@ -313,6 +317,81 @@ def contatos_excluir(cid: int, user: dict = Depends(requer_login)):
     with get_conn() as conn:
         conn.execute("DELETE FROM contatos WHERE id = ?", (cid,))
     return RedirectResponse(url="/contatos", status_code=303)
+
+
+# ─── Ações em lote ─────────────────────────────────────────────────────
+
+from fastapi import Body  # noqa: E402
+
+def _aplicar_lote(ids: list[str], sql_update_or_delete: str) -> int:
+    ids_int = [int(i) for i in ids if str(i).isdigit()]
+    if not ids_int:
+        return 0
+    placeholders = ",".join("?" * len(ids_int))
+    with get_conn() as conn:
+        cur = conn.execute(sql_update_or_delete.format(ph=placeholders), ids_int)
+        return cur.rowcount or 0
+
+
+def _aplicar_lote_filtro(filtros: dict, sql_update_or_delete: str) -> int:
+    sql_where, args = _where_contatos(
+        filtros.get("q", ""), filtros.get("estado", ""),
+        filtros.get("tribunal", ""), filtros.get("invalido", ""),
+    )
+    with get_conn() as conn:
+        cur = conn.execute(sql_update_or_delete.format(where=sql_where), args)
+        return cur.rowcount or 0
+
+
+def _redirect_back(filtros: dict) -> RedirectResponse:
+    qs = urlencode({k: v for k, v in filtros.items() if v})
+    url = f"/contatos?{qs}" if qs else "/contatos"
+    return RedirectResponse(url=url, status_code=303)
+
+
+@app.post("/contatos/lote/excluir")
+async def contatos_lote_excluir(request: Request, user: dict = Depends(requer_login)):
+    form = await request.form()
+    ids = form.getlist("ids")
+    _aplicar_lote(ids, "DELETE FROM contatos WHERE id IN ({ph})")
+    return _redirect_back(dict(form))
+
+
+@app.post("/contatos/lote/invalidar")
+async def contatos_lote_invalidar(request: Request, user: dict = Depends(requer_login)):
+    form = await request.form()
+    ids = form.getlist("ids")
+    _aplicar_lote(ids, "UPDATE contatos SET invalido = 1 WHERE id IN ({ph})")
+    return _redirect_back(dict(form))
+
+
+@app.post("/contatos/lote/validar")
+async def contatos_lote_validar(request: Request, user: dict = Depends(requer_login)):
+    form = await request.form()
+    ids = form.getlist("ids")
+    _aplicar_lote(ids, "UPDATE contatos SET invalido = 0 WHERE id IN ({ph})")
+    return _redirect_back(dict(form))
+
+
+@app.post("/contatos/lote-filtro/excluir")
+async def contatos_lote_filtro_excluir(request: Request, user: dict = Depends(requer_login)):
+    form = await request.form()
+    _aplicar_lote_filtro(dict(form), "DELETE FROM contatos WHERE {where}")
+    return _redirect_back(dict(form))
+
+
+@app.post("/contatos/lote-filtro/invalidar")
+async def contatos_lote_filtro_invalidar(request: Request, user: dict = Depends(requer_login)):
+    form = await request.form()
+    _aplicar_lote_filtro(dict(form), "UPDATE contatos SET invalido = 1 WHERE {where}")
+    return _redirect_back(dict(form))
+
+
+@app.post("/contatos/lote-filtro/validar")
+async def contatos_lote_filtro_validar(request: Request, user: dict = Depends(requer_login)):
+    form = await request.form()
+    _aplicar_lote_filtro(dict(form), "UPDATE contatos SET invalido = 0 WHERE {where}")
+    return _redirect_back(dict(form))
 
 
 # ─── Perfis de remetente ───────────────────────────────────────────────

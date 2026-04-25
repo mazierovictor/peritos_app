@@ -26,35 +26,66 @@
   <a href="/contatos" class="btn-secundario">Limpar</a>
 </form>
 
-<table class="tabela">
-  <thead>
-    <tr>
-      <th>Email</th><th>Cidade</th><th>Órgão</th><th>UF</th><th>TJ</th><th>Status</th><th>Ações</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for c in contatos %}
-    <tr {% if c.invalido %}class="inativa"{% endif %}>
-      <td>{{ c.email }}</td>
-      <td>{{ c.cidade or c.comarca or '—' }}</td>
-      <td>{{ c.orgao or '—' }}</td>
-      <td>{{ c.estado or '—' }}</td>
-      <td>{{ (c.tribunal or '')|upper }}</td>
-      <td>{% if c.invalido %}<span class="status status-erro">inválido</span>{% else %}<span class="status status-ok">válido</span>{% endif %}</td>
-      <td class="acoes">
-        <form method="post" action="/contatos/{{ c.id }}/toggle" class="inline">
-          <button type="submit" class="btn-link">{% if c.invalido %}reativar{% else %}invalidar{% endif %}</button>
-        </form>
-        <form method="post" action="/contatos/{{ c.id }}/excluir" class="inline" onsubmit="return confirm('Excluir contato?');">
-          <button type="submit" class="btn-link erro">excluir</button>
-        </form>
-      </td>
-    </tr>
-    {% else %}
-    <tr><td colspan="7" class="vazio">Nenhum contato encontrado.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+<form method="post" id="form-lote">
+  <input type="hidden" name="q"        value="{{ filtros.q or '' }}">
+  <input type="hidden" name="estado"   value="{{ filtros.estado or '' }}">
+  <input type="hidden" name="tribunal" value="{{ filtros.tribunal or '' }}">
+  <input type="hidden" name="invalido" value="{{ filtros.invalido or '' }}">
+
+  <div class="barra-lote">
+    <span id="qtd-sel"><strong>0</strong> selecionado(s)</span>
+    <button type="submit" formaction="/contatos/lote/excluir"
+            class="btn-secundario erro" data-precisa-sel
+            onclick="return confirm('Excluir os contatos selecionados?');">Excluir selecionados</button>
+    <button type="submit" formaction="/contatos/lote/invalidar"
+            class="btn-secundario" data-precisa-sel>Marcar inválidos</button>
+    <button type="submit" formaction="/contatos/lote/validar"
+            class="btn-secundario" data-precisa-sel>Reativar</button>
+
+    {% if total > 0 %}
+    <span class="separador">|</span>
+    <span class="cinza">Para todos os <strong>{{ total }}</strong> que batem com o filtro:</span>
+    <button type="submit" formaction="/contatos/lote-filtro/excluir"
+            class="btn-secundario erro"
+            onclick="return confirm('ATENÇÃO: vai excluir TODOS os {{ total }} contatos do filtro atual. Confirmar?');">Excluir todos ({{ total }})</button>
+    <button type="submit" formaction="/contatos/lote-filtro/invalidar"
+            class="btn-secundario"
+            onclick="return confirm('Marcar todos os {{ total }} como inválidos?');">Invalidar todos</button>
+    <button type="submit" formaction="/contatos/lote-filtro/validar"
+            class="btn-secundario"
+            onclick="return confirm('Reativar todos os {{ total }}?');">Reativar todos</button>
+    {% endif %}
+  </div>
+
+  <table class="tabela">
+    <thead>
+      <tr>
+        <th class="col-check"><input type="checkbox" id="sel-all"></th>
+        <th>Email</th><th>Cidade</th><th>Órgão</th><th>UF</th><th>TJ</th><th>Status</th><th>Ações</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in contatos %}
+      <tr {% if c.invalido %}class="inativa"{% endif %}>
+        <td class="col-check"><input type="checkbox" name="ids" value="{{ c.id }}" class="sel-row"></td>
+        <td>{{ c.email }}</td>
+        <td>{{ c.cidade or c.comarca or '—' }}</td>
+        <td>{{ c.orgao or '—' }}</td>
+        <td>{{ c.estado or '—' }}</td>
+        <td>{{ (c.tribunal or '')|upper }}</td>
+        <td>{% if c.invalido %}<span class="status status-erro">inválido</span>{% else %}<span class="status status-ok">válido</span>{% endif %}</td>
+        <td class="acoes">
+          <button type="submit" class="btn-link" formaction="/contatos/{{ c.id }}/toggle">{% if c.invalido %}reativar{% else %}invalidar{% endif %}</button>
+          <button type="submit" class="btn-link erro" formaction="/contatos/{{ c.id }}/excluir"
+                  onclick="return confirm('Excluir contato?');">excluir</button>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="vazio">Nenhum contato encontrado.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</form>
 
 {% if total > por_pagina %}
 <div class="paginacao">
@@ -63,4 +94,33 @@
   {% if pagina < paginas_total %}<a href="?{{ qs_pag(pagina + 1) }}">próxima →</a>{% endif %}
 </div>
 {% endif %}
+
+<script>
+  (function () {
+    const all = document.getElementById('sel-all');
+    const rows = document.querySelectorAll('.sel-row');
+    const cnt = document.querySelector('#qtd-sel strong');
+    const botoesSel = document.querySelectorAll('[data-precisa-sel]');
+
+    function atualizar() {
+      const n = [...rows].filter(c => c.checked).length;
+      cnt.textContent = n;
+      if (rows.length === 0) {
+        all.checked = false;
+        all.indeterminate = false;
+      } else {
+        all.checked = (n === rows.length);
+        all.indeterminate = (n > 0 && n < rows.length);
+      }
+      botoesSel.forEach(b => b.disabled = (n === 0));
+    }
+
+    all && all.addEventListener('change', () => {
+      rows.forEach(c => c.checked = all.checked);
+      atualizar();
+    });
+    rows.forEach(c => c.addEventListener('change', atualizar));
+    atualizar();
+  })();
+</script>
 {% endblock %}

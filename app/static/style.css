@@ -266,6 +266,27 @@ h2 { font-size: 18px; margin: 0 0 12px; }
   color: var(--cor-texto-suave);
 }
 
+.barra-lote {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  background: var(--cor-card);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio);
+  padding: 10px 14px;
+  margin: 12px 0;
+  box-shadow: var(--sombra);
+  font-size: 14px;
+}
+.barra-lote .separador { color: var(--cor-borda); margin: 0 6px; }
+.barra-lote button:disabled { opacity: .45; cursor: not-allowed; }
+.btn-secundario.erro { color: var(--cor-erro-txt); border-color: #fecaca; }
+.btn-secundario.erro:hover { background: var(--cor-erro-bg); }
+
+.col-check { width: 32px; text-align: center; }
+.col-check input[type=checkbox] { transform: scale(1.15); cursor: pointer; }
+
 .link-pequeno { font-size: 13px; color: var(--cor-primaria); text-decoration: none; }
 .link-pequeno:hover { text-decoration: underline; }
 
