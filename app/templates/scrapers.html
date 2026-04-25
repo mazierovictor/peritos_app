@@ -37,13 +37,16 @@
         {% else %}—{% endif %}
       </td>
       <td>{% if u %}{{ u.contatos_novos }} / {{ u.contatos_atualizados }}{% else %}—{% endif %}</td>
-      <td>
+      <td class="acoes">
         {% if s.manual %}
           <button disabled class="btn-secundario" title="Requer CAPTCHA — rode localmente">Indisponível</button>
         {% else %}
           <form method="post" action="/scrapers/{{ s.sigla }}/disparar" class="inline">
             <button type="submit" class="btn-primario">Rodar</button>
           </form>
+        {% endif %}
+        {% if config_disponivel.get(s.sigla) %}
+          <a href="/scrapers/{{ s.sigla }}/config" class="btn-link">configurar</a>
         {% endif %}
       </td>
     </tr>

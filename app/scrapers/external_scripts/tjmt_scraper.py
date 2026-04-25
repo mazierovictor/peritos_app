@@ -78,6 +78,16 @@ NUCLEO_KEYWORDS = [
     "vara especializada de execucao fiscal",
 ]
 
+# ─── Override pela UI (não altera lógica; só substitui a lista se houver config salva) ───
+try:
+    import json as _json_ui
+    with open("scraper_config.json", encoding="utf-8") as _f_ui:
+        _UI_CFG = _json_ui.load(_f_ui)
+    if isinstance(_UI_CFG.get("palavras_chave"), list) and _UI_CFG["palavras_chave"]:
+        NUCLEO_KEYWORDS = [str(x) for x in _UI_CFG["palavras_chave"]]
+except Exception:
+    pass
+
 # Sub-seções desejadas dentro das Comarcas
 COMARCA_INCLUDE = [
     "diretoria do forum",

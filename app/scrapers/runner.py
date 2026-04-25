@@ -6,6 +6,7 @@ A execução roda em uma thread daemon para não bloquear a request HTTP.
 """
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,7 @@ import openpyxl
 
 from ..config import settings
 from ..db import get_conn
+from . import configs as scraper_configs
 from .registry import SCRAPERS, ScraperInfo, get
 
 
@@ -128,6 +130,11 @@ def _executar(run_id: int, info: ScraperInfo) -> None:
     script_origem = _scripts_dir() / info.script
     script_local = workdir / info.script
     shutil.copy2(script_origem, script_local)
+
+    # grava a config editada pela UI no cwd; o scraper lê dali
+    cfg = scraper_configs.get_runtime_config(info.sigla)
+    with open(workdir / "scraper_config.json", "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False)
 
     cmd = [sys.executable, "-u", info.script]
     env = {"PYTHONIOENCODING": "utf-8"}

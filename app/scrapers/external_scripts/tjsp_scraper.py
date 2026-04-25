@@ -45,6 +45,16 @@ SEARCH_TERMS = [
     "Bancario",
 ]
 
+# ─── Override pela UI (não altera lógica; só substitui a lista se houver config salva) ───
+try:
+    import json as _json_ui
+    with open("scraper_config.json", encoding="utf-8") as _f_ui:
+        _UI_CFG = _json_ui.load(_f_ui)
+    if isinstance(_UI_CFG.get("palavras_chave"), list) and _UI_CFG["palavras_chave"]:
+        SEARCH_TERMS = [str(x) for x in _UI_CFG["palavras_chave"]]
+except Exception:
+    pass
+
 # Palavras-chave para filtrar órgãos relevantes (minúsculo, sem acento)
 ALLOWED_ORGANS_KEYWORDS = [
     "unica",       # Vara Única

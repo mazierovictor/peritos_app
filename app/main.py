@@ -37,6 +37,7 @@ from .config import settings
 from .crypto import encrypt
 from .db import get_conn, init_db
 from . import mailer, scheduler
+from .scrapers import configs as scraper_configs
 from .scrapers import registry as scraper_registry
 from .scrapers import runner as scraper_runner
 
@@ -172,11 +173,55 @@ def painel(request: Request, user: dict = Depends(requer_login)):
 
 @app.get("/scrapers", response_class=HTMLResponse)
 def scrapers_lista(request: Request, user: dict = Depends(requer_login)):
+    scrapers = scraper_registry.listar()
+    config_disponivel = {s.sigla: scraper_configs.schema(s.sigla).disponivel for s in scrapers}
     return templates.TemplateResponse("scrapers.html", {
         "request": request, "user": user,
-        "scrapers": scraper_registry.listar(),
+        "scrapers": scrapers,
         "ultimas": scraper_runner.ultima_run_por_tribunal(),
+        "config_disponivel": config_disponivel,
     })
+
+
+@app.get("/scrapers/{sigla}/config", response_class=HTMLResponse)
+def scraper_config_form(sigla: str, request: Request,
+                        user: dict = Depends(requer_login),
+                        salvo: int = 0):
+    info = scraper_registry.get(sigla)
+    if not info:
+        raise HTTPException(404)
+    schema = scraper_configs.schema(sigla)
+    palavras_atuais = scraper_configs.palavras_chave(sigla)
+    defaults = scraper_configs.DEFAULTS.get(sigla.lower(), [])
+    usando_personalizado = palavras_atuais != defaults
+    return templates.TemplateResponse("scraper_config.html", {
+        "request": request, "user": user, "info": info, "schema": schema,
+        "palavras_atuais": palavras_atuais, "defaults": defaults,
+        "usando_personalizado": usando_personalizado, "salvo": bool(salvo),
+    })
+
+
+@app.post("/scrapers/{sigla}/config")
+def scraper_config_submit(sigla: str, user: dict = Depends(requer_login),
+                          palavras_chave: str = Form("")):
+    if not scraper_registry.get(sigla):
+        raise HTTPException(404)
+    if not scraper_configs.schema(sigla).disponivel:
+        raise HTTPException(400, "Este scraper não aceita configuração pela UI.")
+    palavras = [linha.strip() for linha in palavras_chave.splitlines() if linha.strip()]
+    if not palavras:
+        scraper_configs.resetar(sigla)
+    else:
+        scraper_configs.salvar_palavras_chave(sigla, palavras)
+    return RedirectResponse(url=f"/scrapers/{sigla}/config?salvo=1", status_code=303)
+
+
+@app.post("/scrapers/{sigla}/config/reset")
+def scraper_config_reset(sigla: str, user: dict = Depends(requer_login)):
+    if not scraper_registry.get(sigla):
+        raise HTTPException(404)
+    scraper_configs.resetar(sigla)
+    return RedirectResponse(url=f"/scrapers/{sigla}/config?salvo=1", status_code=303)
 
 
 @app.post("/scrapers/{sigla}/disparar")

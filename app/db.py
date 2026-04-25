@@ -76,6 +76,12 @@ CREATE TABLE IF NOT EXISTS scraper_runs (
     log                   TEXT
 );
 
+CREATE TABLE IF NOT EXISTS scraper_configs (
+    sigla       TEXT PRIMARY KEY,
+    config_json TEXT NOT NULL,
+    atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS agendamentos (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     nome      TEXT NOT NULL DEFAULT '',
