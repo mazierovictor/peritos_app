@@ -135,6 +135,24 @@ def _ufs_e_tribunais() -> tuple[list[str], list[str]]:
     return ufs, tribunais
 
 
+def _mapping_uf_tribunal() -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """Retorna (tribunais_por_uf, ufs_por_tribunal) para cascade nos forms."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT estado, tribunal FROM contatos "
+            "WHERE estado IS NOT NULL AND tribunal IS NOT NULL "
+            "AND tribunal != '_teste' "
+            "ORDER BY estado, tribunal"
+        ).fetchall()
+    tribunais_por_uf: dict[str, list[str]] = {}
+    ufs_por_tribunal: dict[str, list[str]] = {}
+    for r in rows:
+        uf, tj = r["estado"], r["tribunal"]
+        tribunais_por_uf.setdefault(uf, []).append(tj)
+        ufs_por_tribunal.setdefault(tj, []).append(uf)
+    return tribunais_por_uf, ufs_por_tribunal
+
+
 def _curriculos_dir() -> Path:
     p = Path(settings.data_dir) / "curriculos"
     p.mkdir(parents=True, exist_ok=True)
@@ -1193,10 +1211,13 @@ def _ctx_agendamento_form(user: dict, request: Request, erro: str | None = None)
             (user["id"],),
         )]
     ufs, tribunais = _ufs_e_tribunais()
+    tribunais_por_uf, ufs_por_tribunal = _mapping_uf_tribunal()
     return {
         "request": request, "user": user, "erro": erro,
         "scrapers": scraper_registry.listar(),
         "perfis": perfis, "ufs": ufs, "tribunais": tribunais,
+        "tribunais_por_uf": tribunais_por_uf,
+        "ufs_por_tribunal": ufs_por_tribunal,
     }
 
 
@@ -1287,6 +1308,64 @@ def agendamentos_novo_submit(
         )
     scheduler.recarregar()
     return RedirectResponse(url="/agendamentos", status_code=303)
+
+
+@app.get("/agendamentos/log", response_class=HTMLResponse)
+def agendamentos_log(
+    request: Request,
+    user: dict = Depends(requer_login),
+    ag_id: str = "", status: str = "", pagina: int = 1,
+):
+    por_pagina = 100
+    pagina = max(1, pagina)
+
+    where = ["1=1"]
+    args: list = []
+    if ag_id and ag_id.isdigit():
+        where.append("ag_id = ?"); args.append(int(ag_id))
+    if status in ("ok", "erro", "missed", "rodando"):
+        where.append("status = ?"); args.append(status)
+    sql_where = " AND ".join(where)
+
+    with get_conn() as conn:
+        agendamentos = [dict(r) for r in conn.execute(
+            "SELECT id, nome FROM agendamentos ORDER BY id DESC"
+        )]
+        total = conn.execute(
+            f"SELECT COUNT(*) c FROM cron_runs WHERE {sql_where}", args
+        ).fetchone()["c"]
+        contagem = {
+            "ok": conn.execute(
+                f"SELECT COUNT(*) c FROM cron_runs WHERE {sql_where} AND status = 'ok'", args
+            ).fetchone()["c"],
+            "erro": conn.execute(
+                f"SELECT COUNT(*) c FROM cron_runs WHERE {sql_where} AND status = 'erro'", args
+            ).fetchone()["c"],
+            "missed": conn.execute(
+                f"SELECT COUNT(*) c FROM cron_runs WHERE {sql_where} AND status = 'missed'", args
+            ).fetchone()["c"],
+        }
+        rows = conn.execute(
+            f"SELECT * FROM cron_runs WHERE {sql_where} "
+            f"ORDER BY id DESC LIMIT ? OFFSET ?",
+            [*args, por_pagina, (pagina - 1) * por_pagina],
+        ).fetchall()
+
+    filtros = {"ag_id": ag_id, "status": status}
+
+    def qs_pag(p: int) -> str:
+        return urlencode({**filtros, "pagina": p})
+
+    return templates.TemplateResponse("agendamentos_log.html", {
+        "request": request, "user": user,
+        "agendamentos": agendamentos,
+        "registros": [dict(r) for r in rows],
+        "total": total, "contagem": contagem,
+        "filtros": filtros, "pagina": pagina, "por_pagina": por_pagina,
+        "paginas_total": max(1, (total + por_pagina - 1) // por_pagina),
+        "qs_pag": qs_pag,
+        "scheduler_status": scheduler.status_scheduler(),
+    })
 
 
 @app.post("/agendamentos/{aid}/toggle")

@@ -116,6 +116,20 @@ CREATE TABLE IF NOT EXISTS agendamentos (
     ativo     INTEGER NOT NULL DEFAULT 1,
     criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS cron_runs (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    ag_id          INTEGER,
+    nome           TEXT,
+    tipo           TEXT,
+    fonte          TEXT NOT NULL DEFAULT 'agendamento',
+    iniciado_em    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    finalizado_em  TIMESTAMP,
+    status         TEXT NOT NULL DEFAULT 'rodando',
+    mensagem       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_cron_runs_ag ON cron_runs(ag_id);
+CREATE INDEX IF NOT EXISTS idx_cron_runs_iniciado ON cron_runs(iniciado_em);
 """
 
 

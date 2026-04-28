@@ -54,18 +54,19 @@
     </label>
     <div class="grade-2">
       <label>Filtrar por UF
-        <select name="filtro_estado">
+        <select name="filtro_estado" id="filtro_estado">
           <option value="">— todos —</option>
           {% for uf in ufs %}<option value="{{ uf }}">{{ uf }}</option>{% endfor %}
         </select>
       </label>
       <label>Filtrar por Tribunal
-        <select name="filtro_tribunal">
+        <select name="filtro_tribunal" id="filtro_tribunal">
           <option value="">— todos —</option>
           {% for tj in tribunais %}<option value="{{ tj }}">{{ tj|upper }}</option>{% endfor %}
         </select>
       </label>
     </div>
+    <small class="cinza">Selecionar a UF restringe os tribunais disponíveis (e vice-versa).</small>
     <label>Quantidade por execução
       <input type="number" name="quantidade" value="50" min="1" max="500">
       <small class="cinza">Será limitada também pelo limite diário do perfil.</small>
@@ -135,6 +136,54 @@
     }
     freqSel.addEventListener('change', atualizarFreq);
     atualizarFreq();
+
+    // Cascade UF ↔ Tribunal
+    const tribPorUf  = {{ tribunais_por_uf | tojson }};
+    const ufsPorTrib = {{ ufs_por_tribunal | tojson }};
+    const selUf   = document.getElementById('filtro_estado');
+    const selTrib = document.getElementById('filtro_tribunal');
+
+    function setOptions(select, valores, valorSelecionado) {
+      const placeholder = select.querySelector('option[value=""]');
+      const placeholderHTML = placeholder ? placeholder.outerHTML : '<option value="">— todos —</option>';
+      const opts = valores.map(function (v) {
+        const sel = (v === valorSelecionado) ? ' selected' : '';
+        const label = (select.id === 'filtro_tribunal') ? v.toUpperCase() : v;
+        return '<option value="' + v + '"' + sel + '>' + label + '</option>';
+      }).join('');
+      select.innerHTML = placeholderHTML + opts;
+      if (valorSelecionado && valores.indexOf(valorSelecionado) >= 0) {
+        select.value = valorSelecionado;
+      }
+    }
+
+    function todosTribunais() {
+      return Object.keys(ufsPorTrib).sort();
+    }
+    function todosUfs() {
+      return Object.keys(tribPorUf).sort();
+    }
+
+    selUf.addEventListener('change', function () {
+      const uf = selUf.value;
+      const atual = selTrib.value;
+      const lista = uf ? (tribPorUf[uf] || []) : todosTribunais();
+      const manter = lista.indexOf(atual) >= 0 ? atual : '';
+      setOptions(selTrib, lista, manter);
+    });
+
+    selTrib.addEventListener('change', function () {
+      const tj = selTrib.value;
+      const atual = selUf.value;
+      const lista = tj ? (ufsPorTrib[tj] || []) : todosUfs();
+      // Se o tribunal só tem 1 UF, autosseleciona
+      if (tj && lista.length === 1) {
+        setOptions(selUf, lista, lista[0]);
+      } else {
+        const manter = lista.indexOf(atual) >= 0 ? atual : '';
+        setOptions(selUf, lista, manter);
+      }
+    });
   })();
 </script>
 {% endblock %}

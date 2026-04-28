@@ -13,12 +13,16 @@ Cada agendamento tem:
   - dia_mes:      1-28             (frequencia = mensal)
 
 O fuso usado é America/Sao_Paulo, então o usuário escolhe o horário local.
+
+Cada execução é registrada em `cron_runs` para auditoria.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Optional
 
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_MISSED
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
@@ -27,34 +31,77 @@ from apscheduler.triggers.interval import IntervalTrigger
 from .db import get_conn
 
 
+log = logging.getLogger("peritos.scheduler")
+
 TZ = "America/Sao_Paulo"
 _scheduler: Optional[BackgroundScheduler] = None
 
+
+# ─── Log de execuções (cron_runs) ──────────────────────────────────────
+
+def _registrar_inicio(ag_id: int | None, nome: str | None, tipo: str | None,
+                      fonte: str = "agendamento") -> int:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO cron_runs (ag_id, nome, tipo, fonte, status) "
+            "VALUES (?, ?, ?, ?, 'rodando')",
+            (ag_id, nome, tipo, fonte),
+        )
+        return cur.lastrowid
+
+
+def _registrar_fim(run_id: int, status: str, mensagem: str | None = None) -> None:
+    if not run_id:
+        return
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE cron_runs SET finalizado_em = CURRENT_TIMESTAMP, "
+            "status = ?, mensagem = ? WHERE id = ?",
+            (status, (mensagem or None), run_id),
+        )
+
+
+def _registrar_evento_externo(ag_id: int | None, nome: str | None, tipo: str | None,
+                              status: str, mensagem: str) -> None:
+    """Registra eventos que não passaram por _executar_job (missed, error externo)."""
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO cron_runs (ag_id, nome, tipo, fonte, status, mensagem, finalizado_em) "
+            "VALUES (?, ?, ?, 'agendamento', ?, ?, CURRENT_TIMESTAMP)",
+            (ag_id, nome, tipo, status, mensagem[:500] if mensagem else None),
+        )
+
+
+# ─── Execução do job ───────────────────────────────────────────────────
 
 def _executar_job(ag_id: int) -> None:
     """Carrega o agendamento atual do banco e dispara a ação correspondente."""
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM agendamentos WHERE id = ?", (ag_id,)).fetchone()
     if not row:
+        run_id = _registrar_inicio(ag_id, None, None)
+        _registrar_fim(run_id, "erro", f"Agendamento {ag_id} não encontrado")
         return
     ag = dict(row)
+    run_id = _registrar_inicio(ag["id"], ag.get("nome"), ag.get("tipo"))
 
-    if ag["tipo"] == "scraper":
-        from .scrapers import runner as scraper_runner
-        try:
-            if (ag.get("alvo") or "").lower() == "todos":
+    try:
+        if ag["tipo"] == "scraper":
+            from .scrapers import runner as scraper_runner
+            alvo = (ag.get("alvo") or "").lower()
+            if alvo == "todos":
                 scraper_runner.disparar_todos()
+                _registrar_fim(run_id, "ok", "Scrapers (todos) disparados")
             else:
                 scraper_runner.disparar(ag["alvo"])
-        except Exception:
-            pass
+                _registrar_fim(run_id, "ok", f"Scraper {alvo.upper()} disparado")
 
-    elif ag["tipo"] == "campanha":
-        from . import mailer
-        if not ag.get("perfil_id"):
-            return
-        try:
-            mailer.disparar(
+        elif ag["tipo"] == "campanha":
+            from . import mailer
+            if not ag.get("perfil_id"):
+                _registrar_fim(run_id, "erro", "Agendamento de campanha sem perfil_id")
+                return
+            estado = mailer.disparar(
                 ag["perfil_id"],
                 int(ag.get("quantidade") or 50),
                 {
@@ -62,8 +109,15 @@ def _executar_job(ag_id: int) -> None:
                     "tribunal": ag.get("filtro_tribunal") or None,
                 },
             )
-        except Exception:
-            pass
+            msg = "Campanha disparada"
+            if estado is not None and getattr(estado, "mensagem", None):
+                msg = f"Campanha disparada · {estado.mensagem}"
+            _registrar_fim(run_id, "ok", msg)
+        else:
+            _registrar_fim(run_id, "erro", f"Tipo desconhecido: {ag.get('tipo')}")
+    except Exception as e:
+        log.exception("Falha ao executar job %s", ag_id)
+        _registrar_fim(run_id, "erro", f"{type(e).__name__}: {e}")
 
 
 def _trigger_para(ag: dict):
@@ -120,8 +174,12 @@ def _registrar_no_scheduler(ag: dict) -> None:
             coalesce=True,
             max_instances=1,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        log.exception("Falha ao registrar agendamento %s no scheduler", ag.get("id"))
+        _registrar_evento_externo(
+            ag.get("id"), ag.get("nome"), ag.get("tipo"),
+            "erro", f"Falha ao registrar no scheduler: {e}",
+        )
 
 
 def recarregar() -> None:
@@ -143,7 +201,7 @@ def _job_bounce_checker() -> None:
     try:
         bounce_checker.verificar_todos()
     except Exception:
-        pass
+        log.exception("Falha no bounce checker")
 
 
 def _registrar_jobs_internos() -> None:
@@ -161,7 +219,51 @@ def _registrar_jobs_internos() -> None:
             next_run_time=datetime.now(),
         )
     except Exception:
-        pass
+        log.exception("Falha ao registrar bounce-checker")
+
+
+# ─── Listeners para erros e jobs perdidos ──────────────────────────────
+
+def _job_id_para_ag(job_id: str) -> int | None:
+    if not job_id or not job_id.startswith("ag-"):
+        return None
+    try:
+        return int(job_id.split("-", 1)[1])
+    except Exception:
+        return None
+
+
+def _carregar_ag_basico(ag_id: int) -> tuple[str | None, str | None]:
+    if not ag_id:
+        return None, None
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT nome, tipo FROM agendamentos WHERE id = ?", (ag_id,)
+        ).fetchone()
+    if not row:
+        return None, None
+    return row["nome"], row["tipo"]
+
+
+def _on_job_error(event) -> None:
+    ag_id = _job_id_para_ag(getattr(event, "job_id", "") or "")
+    if ag_id is None:
+        return
+    nome, tipo = _carregar_ag_basico(ag_id)
+    msg = f"Erro no APScheduler: {getattr(event, 'exception', '')}"
+    log.error("Job %s falhou: %s", event.job_id, msg)
+    _registrar_evento_externo(ag_id, nome, tipo, "erro", msg)
+
+
+def _on_job_missed(event) -> None:
+    ag_id = _job_id_para_ag(getattr(event, "job_id", "") or "")
+    if ag_id is None:
+        return
+    nome, tipo = _carregar_ag_basico(ag_id)
+    quando = getattr(event, "scheduled_run_time", None)
+    msg = f"Execução perdida (scheduled={quando})"
+    log.warning("Job %s missed: %s", event.job_id, msg)
+    _registrar_evento_externo(ag_id, nome, tipo, "missed", msg)
 
 
 def iniciar() -> None:
@@ -169,9 +271,12 @@ def iniciar() -> None:
     if _scheduler is not None:
         return
     _scheduler = BackgroundScheduler(timezone=TZ)
+    _scheduler.add_listener(_on_job_error, EVENT_JOB_ERROR)
+    _scheduler.add_listener(_on_job_missed, EVENT_JOB_MISSED)
     _scheduler.start()
     recarregar()
     _registrar_jobs_internos()
+    log.info("Scheduler iniciado com %d jobs", len(_scheduler.get_jobs()))
 
 
 def parar() -> None:
@@ -188,3 +293,17 @@ def proxima_execucao(ag_id: int) -> str | None:
     if not job or not job.next_run_time:
         return None
     return job.next_run_time.strftime("%d/%m/%Y %H:%M")
+
+
+def status_scheduler() -> dict:
+    """Snapshot do estado do scheduler para a página de log."""
+    if _scheduler is None:
+        return {"rodando": False, "jobs": []}
+    jobs = []
+    for j in _scheduler.get_jobs():
+        jobs.append({
+            "id": j.id,
+            "nome": j.name,
+            "proxima": j.next_run_time.strftime("%d/%m/%Y %H:%M") if j.next_run_time else None,
+        })
+    return {"rodando": _scheduler.running, "jobs": jobs}

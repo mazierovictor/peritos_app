@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block titulo %}Log de execuções — Peritos{% endblock %}
+{% block conteudo %}
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">Automação · Auditoria</div>
+    <h1>Log de execuções <span class="cinza" style="font-size:22px">· {{ total }}</span></h1>
+    <p class="sub">Cada vez que um agendamento dispara, é registrado aqui — útil pra confirmar que o cron está rodando.</p>
+  </div>
+  <div class="pagina-header-acoes">
+    <a href="/agendamentos" class="btn-secundario">← Agendamentos</a>
+  </div>
+</header>
+
+<div class="cards" style="margin-bottom:16px">
+  <div class="card">
+    <div class="card-rotulo">Scheduler</div>
+    <div class="card-valor">
+      {% if scheduler_status.rodando %}<span class="status status-ok">rodando</span>{% else %}<span class="status status-erro">parado</span>{% endif %}
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-rotulo">Jobs ativos</div>
+    <div class="card-valor">{{ scheduler_status.jobs|length }}</div>
+  </div>
+  <div class="card">
+    <div class="card-rotulo">Sucesso (filtro)</div>
+    <div class="card-valor">{{ contagem.ok }}</div>
+  </div>
+  <div class="card">
+    <div class="card-rotulo">Erros (filtro)</div>
+    <div class="card-valor">{{ contagem.erro }}</div>
+  </div>
+  <div class="card">
+    <div class="card-rotulo">Perdidos (filtro)</div>
+    <div class="card-valor">{{ contagem.missed }}</div>
+  </div>
+</div>
+
+<details style="margin-bottom:16px">
+  <summary class="btn-link" style="cursor:pointer">▸ Jobs registrados no scheduler ({{ scheduler_status.jobs|length }})</summary>
+  <table class="tabela" style="margin-top:8px">
+    <thead><tr><th>ID</th><th>Nome</th><th>Próxima execução</th></tr></thead>
+    <tbody>
+      {% for j in scheduler_status.jobs %}
+      <tr><td><code>{{ j.id }}</code></td><td>{{ j.nome }}</td><td>{{ j.proxima or '—' }}</td></tr>
+      {% else %}
+      <tr><td colspan="3" class="vazio" style="padding:16px; text-align:center">Nenhum job ativo.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</details>
+
+<form method="get" action="/agendamentos/log" class="filtros">
+  <select name="ag_id">
+    <option value="">Agendamento: todos</option>
+    {% for a in agendamentos %}
+    <option value="{{ a.id }}" {% if filtros.ag_id == a.id|string %}selected{% endif %}>
+      [{{ a.id }}] {{ a.nome or '(sem nome)' }}
+    </option>
+    {% endfor %}
+  </select>
+  <select name="status">
+    <option value="">Status: todos</option>
+    <option value="ok"      {% if filtros.status == 'ok' %}selected{% endif %}>Sucesso</option>
+    <option value="erro"    {% if filtros.status == 'erro' %}selected{% endif %}>Erro</option>
+    <option value="missed"  {% if filtros.status == 'missed' %}selected{% endif %}>Perdida</option>
+    <option value="rodando" {% if filtros.status == 'rodando' %}selected{% endif %}>Rodando</option>
+  </select>
+  <button type="submit" class="btn-primario">Filtrar</button>
+  <a href="/agendamentos/log" class="btn-secundario">Limpar</a>
+</form>
+
+<table class="tabela">
+  <thead>
+    <tr>
+      <th>Iniciado</th>
+      <th>Finalizado</th>
+      <th>Agendamento</th>
+      <th>Tipo</th>
+      <th>Status</th>
+      <th>Mensagem</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in registros %}
+    <tr>
+      <td style="font-variant-numeric: tabular-nums">{{ r.iniciado_em | local_dt }}</td>
+      <td style="font-variant-numeric: tabular-nums">{{ (r.finalizado_em | local_dt) if r.finalizado_em else '—' }}</td>
+      <td>
+        {% if r.ag_id %}<small class="cinza">#{{ r.ag_id }}</small> {% endif %}
+        {{ r.nome or '(sem nome)' }}
+      </td>
+      <td>{{ r.tipo or '—' }}</td>
+      <td>
+        {% if r.status == 'ok' %}<span class="status status-ok">ok</span>
+        {% elif r.status == 'rodando' %}<span class="status">rodando</span>
+        {% elif r.status == 'missed' %}<span class="status status-erro">perdida</span>
+        {% else %}<span class="status status-erro">erro</span>
+        {% endif %}
+      </td>
+      <td><small class="cinza">{{ (r.mensagem or '')[:200] }}</small></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="vazio" style="padding:32px; text-align:center">Nenhuma execução registrada ainda.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if total > por_pagina %}
+<div class="paginacao">
+  {% if pagina > 1 %}<a href="?{{ qs_pag(pagina - 1) }}">← anterior</a>{% endif %}
+  <span>página {{ pagina }} de {{ paginas_total }}</span>
+  {% if pagina < paginas_total %}<a href="?{{ qs_pag(pagina + 1) }}">próxima →</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}
