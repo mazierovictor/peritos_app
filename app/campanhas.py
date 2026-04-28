@@ -7,6 +7,43 @@ O estado runtime das threads vivas fica em `_threads_runtime` (memória).
 """
 from __future__ import annotations
 
+import enum
+import re
+import smtplib
+
+
+class ErroSmtp(enum.Enum):
+    FATAL = "fatal"             # auth falhou ou conta suspensa — pausa imediata
+    TRANSIENTE = "transiente"   # rede/timeout — retry com backoff
+    POR_CONTATO = "por_contato" # destinatário inválido — segue, sem pausa
+
+
+_FATAL_PATTERNS = re.compile(
+    r"535|530|account.*disabled|invalid.*credentials|authentication.*failed",
+    re.IGNORECASE,
+)
+
+
+def classificar_erro_smtp(exc: BaseException) -> ErroSmtp:
+    if isinstance(exc, smtplib.SMTPAuthenticationError):
+        return ErroSmtp.FATAL
+    if isinstance(exc, smtplib.SMTPResponseException):
+        msg = f"{exc.smtp_code} {exc.smtp_error!s}"
+        if _FATAL_PATTERNS.search(msg):
+            return ErroSmtp.FATAL
+    if isinstance(exc, smtplib.SMTPRecipientsRefused):
+        return ErroSmtp.POR_CONTATO
+    if isinstance(exc, (
+        smtplib.SMTPServerDisconnected,
+        smtplib.SMTPConnectError,
+        TimeoutError,
+        ConnectionError,
+    )):
+        return ErroSmtp.TRANSIENTE
+    if isinstance(exc, smtplib.SMTPException):
+        return ErroSmtp.POR_CONTATO  # fallback razoável p/ outros SMTPxxx
+    return ErroSmtp.POR_CONTATO
+
 
 def parse_dias_semana(s: str) -> set[int]:
     """Converte CSV '0,1,2' em set {0,1,2}. 0=segunda, 6=domingo."""
