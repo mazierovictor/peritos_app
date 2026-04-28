@@ -184,10 +184,16 @@ def painel(request: Request, user: dict = Depends(requer_login)):
         total_contatos = conn.execute(
             "SELECT COUNT(*) c FROM contatos WHERE tribunal != '_teste'"
         ).fetchone()["c"]
-        total_envios = conn.execute("SELECT COUNT(*) c FROM envios WHERE status = 'ok'").fetchone()["c"]
+        total_envios = conn.execute(
+            "SELECT COUNT(*) c FROM envios e "
+            "JOIN contatos c ON c.id = e.contato_id "
+            "WHERE e.status = 'ok' AND c.tribunal != '_teste'"
+        ).fetchone()["c"]
         envios_hoje = conn.execute(
-            "SELECT COUNT(*) c FROM envios WHERE status = 'ok' "
-            "AND date(enviado_em) = date('now', 'localtime')"
+            "SELECT COUNT(*) c FROM envios e "
+            "JOIN contatos c ON c.id = e.contato_id "
+            "WHERE e.status = 'ok' AND c.tribunal != '_teste' "
+            "AND date(e.enviado_em) = date('now', 'localtime')"
         ).fetchone()["c"]
         ultima = conn.execute(
             "SELECT tribunal, finalizado_em, status FROM scraper_runs ORDER BY id DESC LIMIT 1"
@@ -759,7 +765,109 @@ def teste_enviar(
     if erro and not envio_id:
         params = urlencode({"perfil_id": perfil_id, "erro": erro})
         return RedirectResponse(url=f"/teste?{params}", status_code=303)
-    return RedirectResponse(url=f"/historico/envio/{envio_id}", status_code=303)
+    return RedirectResponse(url=f"/teste/historico/envio/{envio_id}", status_code=303)
+
+
+# ─── Histórico de testes (restrito ao menu Enviar teste) ───────────────
+
+@app.get("/teste/historico", response_class=HTMLResponse)
+def teste_historico(
+    request: Request,
+    user: dict = Depends(requer_login),
+    perfil_id: str = "", status: str = "",
+    desde: str = "", ate: str = "", pagina: int = 1,
+):
+    por_pagina = 100
+    pagina = max(1, pagina)
+
+    with get_conn() as conn:
+        perfis = [dict(r) for r in conn.execute(
+            "SELECT id, nome FROM perfis_remetente WHERE usuario_id = ? ORDER BY nome",
+            (user["id"],),
+        )]
+        perfis_ids = [str(p["id"]) for p in perfis]
+
+    where = ["1=1", "c.tribunal = '_teste'"]
+    args: list = []
+    if perfis_ids:
+        where.append(f"e.perfil_remetente_id IN ({','.join('?' * len(perfis_ids))})")
+        args.extend(perfis_ids)
+    else:
+        where.append("0=1")
+    if perfil_id and perfil_id in perfis_ids:
+        where.append("e.perfil_remetente_id = ?"); args.append(perfil_id)
+    if status in ("ok", "erro", "bounce", "bounce_soft"):
+        where.append("e.status = ?"); args.append(status)
+    if desde:
+        where.append("date(e.enviado_em) >= date(?)"); args.append(desde)
+    if ate:
+        where.append("date(e.enviado_em) <= date(?)"); args.append(ate)
+    sql_where = " AND ".join(where)
+
+    base_from = "FROM envios e JOIN contatos c ON c.id = e.contato_id"
+
+    with get_conn() as conn:
+        total = conn.execute(f"SELECT COUNT(*) c {base_from} WHERE {sql_where}", args).fetchone()["c"]
+        contagem = {
+            "ok": conn.execute(
+                f"SELECT COUNT(*) c {base_from} WHERE {sql_where} AND e.status = 'ok'", args
+            ).fetchone()["c"],
+            "erro": conn.execute(
+                f"SELECT COUNT(*) c {base_from} WHERE {sql_where} AND e.status = 'erro'", args
+            ).fetchone()["c"],
+            "bounce": conn.execute(
+                f"SELECT COUNT(*) c {base_from} WHERE {sql_where} AND e.status = 'bounce'", args
+            ).fetchone()["c"],
+            "bounce_soft": conn.execute(
+                f"SELECT COUNT(*) c {base_from} WHERE {sql_where} AND e.status = 'bounce_soft'", args
+            ).fetchone()["c"],
+            "abertos": conn.execute(
+                f"SELECT COUNT(DISTINCT a.envio_id) c {base_from} "
+                f"JOIN aberturas a ON a.envio_id = e.id "
+                f"WHERE {sql_where} AND a.tipo = 'cliente'", args
+            ).fetchone()["c"],
+        }
+        rows = conn.execute(
+            f"""
+            SELECT e.id, e.enviado_em, e.status, e.erro_mensagem,
+                   e.bounce_em, e.bounce_codigo, e.bounce_diagnostico,
+                   c.email,
+                   p.nome AS perfil_nome,
+                   (SELECT COUNT(*) FROM aberturas a WHERE a.envio_id = e.id AND a.tipo = 'cliente') AS aberturas,
+                   (SELECT MIN(aberta_em) FROM aberturas a WHERE a.envio_id = e.id AND a.tipo = 'cliente') AS primeira_abertura
+              FROM envios e
+              JOIN contatos c ON c.id = e.contato_id
+              JOIN perfis_remetente p ON p.id = e.perfil_remetente_id
+             WHERE {sql_where}
+             ORDER BY e.id DESC
+             LIMIT ? OFFSET ?
+            """,
+            [*args, por_pagina, (pagina - 1) * por_pagina],
+        ).fetchall()
+
+    filtros = {"perfil_id": perfil_id, "status": status, "desde": desde, "ate": ate}
+
+    def qs_pag(p: int) -> str:
+        return urlencode({**filtros, "pagina": p})
+
+    return templates.TemplateResponse("teste_historico.html", {
+        "request": request, "user": user,
+        "perfis": perfis,
+        "registros": [dict(r) for r in rows], "total": total, "contagem": contagem,
+        "filtros": filtros, "pagina": pagina, "por_pagina": por_pagina,
+        "paginas_total": max(1, (total + por_pagina - 1) // por_pagina),
+        "qs_pag": qs_pag,
+    })
+
+
+@app.get("/teste/historico/envio/{envio_id}", response_class=HTMLResponse)
+def teste_historico_envio(envio_id: int, request: Request, user: dict = Depends(requer_login)):
+    ctx = _ctx_envio(envio_id, user, request)
+    if (ctx["envio"].get("tribunal") or "") != "_teste":
+        raise HTTPException(404)
+    ctx["voltar_url"] = "/teste/historico"
+    ctx["voltar_label"] = "Histórico de testes"
+    return templates.TemplateResponse("historico_envio.html", ctx)
 
 
 # ─── Histórico ─────────────────────────────────────────────────────────
@@ -781,7 +889,7 @@ def historico(
         )]
         perfis_ids = [str(p["id"]) for p in perfis]
 
-    where = ["1=1"]
+    where = ["1=1", "c.tribunal != '_teste'"]
     args: list = []
     if perfis_ids:
         where.append(f"e.perfil_remetente_id IN ({','.join('?' * len(perfis_ids))})")
@@ -798,23 +906,25 @@ def historico(
         where.append("date(e.enviado_em) <= date(?)"); args.append(ate)
     sql_where = " AND ".join(where)
 
+    base_from = "FROM envios e JOIN contatos c ON c.id = e.contato_id"
+
     with get_conn() as conn:
-        total = conn.execute(f"SELECT COUNT(*) c FROM envios e WHERE {sql_where}", args).fetchone()["c"]
+        total = conn.execute(f"SELECT COUNT(*) c {base_from} WHERE {sql_where}", args).fetchone()["c"]
         contagem = {
             "ok": conn.execute(
-                f"SELECT COUNT(*) c FROM envios e WHERE {sql_where} AND e.status = 'ok'", args
+                f"SELECT COUNT(*) c {base_from} WHERE {sql_where} AND e.status = 'ok'", args
             ).fetchone()["c"],
             "erro": conn.execute(
-                f"SELECT COUNT(*) c FROM envios e WHERE {sql_where} AND e.status = 'erro'", args
+                f"SELECT COUNT(*) c {base_from} WHERE {sql_where} AND e.status = 'erro'", args
             ).fetchone()["c"],
             "bounce": conn.execute(
-                f"SELECT COUNT(*) c FROM envios e WHERE {sql_where} AND e.status = 'bounce'", args
+                f"SELECT COUNT(*) c {base_from} WHERE {sql_where} AND e.status = 'bounce'", args
             ).fetchone()["c"],
             "bounce_soft": conn.execute(
-                f"SELECT COUNT(*) c FROM envios e WHERE {sql_where} AND e.status = 'bounce_soft'", args
+                f"SELECT COUNT(*) c {base_from} WHERE {sql_where} AND e.status = 'bounce_soft'", args
             ).fetchone()["c"],
             "abertos": conn.execute(
-                f"SELECT COUNT(DISTINCT a.envio_id) c FROM envios e "
+                f"SELECT COUNT(DISTINCT a.envio_id) c {base_from} "
                 f"JOIN aberturas a ON a.envio_id = e.id "
                 f"WHERE {sql_where} AND a.tipo = 'cliente'", args
             ).fetchone()["c"],
@@ -907,6 +1017,9 @@ def _ctx_envio(envio_id: int, user: dict, request: Request) -> dict:
 @app.get("/historico/envio/{envio_id}", response_class=HTMLResponse)
 def historico_envio(envio_id: int, request: Request, user: dict = Depends(requer_login)):
     ctx = _ctx_envio(envio_id, user, request)
+    # Envios de teste vivem só no menu /teste — redireciona para a view de lá.
+    if (ctx["envio"].get("tribunal") or "") == "_teste":
+        return RedirectResponse(url=f"/teste/historico/envio/{envio_id}", status_code=303)
     return templates.TemplateResponse("historico_envio.html", ctx)
 
 

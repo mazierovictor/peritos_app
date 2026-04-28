@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block titulo %}Histórico de testes — Peritos{% endblock %}
+{% block conteudo %}
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">Sandbox · Auditoria</div>
+    <h1>Histórico de testes <span class="cinza" style="font-size:22px">· {{ total }}</span></h1>
+    <p class="sub">Apenas envios feitos pela aba <a href="/teste">Enviar teste</a>. Não aparecem no histórico geral.</p>
+  </div>
+  <div class="pagina-header-acoes">
+    <a href="/teste" class="btn-secundario">← Voltar para enviar teste</a>
+  </div>
+</header>
+
+<form method="get" action="/teste/historico" class="filtros">
+  <select name="perfil_id">
+    <option value="">Perfil: todos</option>
+    {% for p in perfis %}
+    <option value="{{ p.id }}" {% if filtros.perfil_id == p.id|string %}selected{% endif %}>{{ p.nome }}</option>
+    {% endfor %}
+  </select>
+  <select name="status">
+    <option value="">Status: todos</option>
+    <option value="ok" {% if filtros.status == 'ok' %}selected{% endif %}>Sucesso</option>
+    <option value="erro" {% if filtros.status == 'erro' %}selected{% endif %}>Erro no envio</option>
+    <option value="bounce" {% if filtros.status == 'bounce' %}selected{% endif %}>Bounce permanente (5.x.x)</option>
+    <option value="bounce_soft" {% if filtros.status == 'bounce_soft' %}selected{% endif %}>Bounce temporário (4.x.x)</option>
+  </select>
+  <input type="date" name="desde" value="{{ filtros.desde or '' }}">
+  <input type="date" name="ate" value="{{ filtros.ate or '' }}">
+  <button type="submit" class="btn-primario">Filtrar</button>
+  <a href="/teste/historico" class="btn-secundario">Limpar</a>
+</form>
+
+<div class="cards">
+  <div class="card">
+    <div class="card-rotulo">Sucesso (filtro)</div>
+    <div class="card-valor">{{ contagem.ok }}</div>
+  </div>
+  <div class="card">
+    <div class="card-rotulo">Erro envio (filtro)</div>
+    <div class="card-valor">{{ contagem.erro }}</div>
+  </div>
+  <div class="card">
+    <div class="card-rotulo">Bounce 5.x.x (filtro)</div>
+    <div class="card-valor">{{ contagem.bounce }}</div>
+  </div>
+  <div class="card">
+    <div class="card-rotulo">Bounce 4.x.x (filtro)</div>
+    <div class="card-valor">{{ contagem.bounce_soft }}</div>
+  </div>
+  <div class="card">
+    <div class="card-rotulo">Abertos (filtro)</div>
+    <div class="card-valor">{{ contagem.abertos }}</div>
+  </div>
+</div>
+
+<table class="tabela">
+  <thead><tr><th>Quando</th><th>Para</th><th>Perfil</th><th>Status</th><th>Aberto</th><th>Detalhe</th></tr></thead>
+  <tbody>
+    {% for r in registros %}
+    <tr>
+      <td><a href="/teste/historico/envio/{{ r.id }}" style="font-variant-numeric: tabular-nums">{{ r.enviado_em | local_dt }}</a></td>
+      <td><a href="/teste/historico/envio/{{ r.id }}">{{ r.email }}</a></td>
+      <td>{{ r.perfil_nome }}</td>
+      <td>
+        {% if r.status == 'ok' %}<span class="status status-ok">ok</span>
+        {% elif r.status == 'bounce' %}<span class="status status-erro">bounce {{ r.bounce_codigo or '5.x.x' }}</span>
+        {% elif r.status == 'bounce_soft' %}<span class="status">soft {{ r.bounce_codigo or '4.x.x' }}</span>
+        {% else %}<span class="status status-erro">erro</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if r.aberturas and r.aberturas > 0 %}
+          <span class="status status-ok" title="{{ r.aberturas }} abertura(s)">✓ {{ r.aberturas }}×</span>
+          {% if r.primeira_abertura %}<br><small class="cinza">{{ r.primeira_abertura | local_dt }}</small>{% endif %}
+        {% else %}
+          <small class="cinza">—</small>
+        {% endif %}
+      </td>
+      <td><small class="cinza">
+        {% if r.status in ('bounce', 'bounce_soft') %}
+          {{ (r.bounce_diagnostico or '')[:120] }}
+          {% if r.bounce_em %}<br><em>{{ r.bounce_em | local_dt }}</em>{% endif %}
+        {% else %}
+          {{ (r.erro_mensagem or '')[:120] }}
+        {% endif %}
+      </small></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="vazio" style="padding:32px; text-align:center">Nenhum teste com esses filtros.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if total > por_pagina %}
+<div class="paginacao">
+  {% if pagina > 1 %}<a href="?{{ qs_pag(pagina - 1) }}">← anterior</a>{% endif %}
+  <span>página {{ pagina }} de {{ paginas_total }}</span>
+  {% if pagina < paginas_total %}<a href="?{{ qs_pag(pagina + 1) }}">próxima →</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

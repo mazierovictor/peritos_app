@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block titulo %}Envio #{{ envio.id }} — Peritos{% endblock %}
 {% block conteudo %}
-<a href="/historico" class="voltar">← Histórico</a>
+<a href="{{ voltar_url or '/historico' }}" class="voltar">← {{ voltar_label or 'Histórico' }}</a>
 
 <header class="pagina-header">
   <div>
