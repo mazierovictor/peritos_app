@@ -13,6 +13,8 @@ import smtplib
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 
+from .db import get_conn
+
 
 class ErroSmtp(enum.Enum):
     FATAL = "fatal"             # auth falhou ou conta suspensa — pausa imediata
@@ -144,3 +146,105 @@ def proxima_acao(c: EstadoCampanha, now: datetime) -> Acao:
     seg_ate_fim = (fim_dt - now).total_seconds()
     intervalo = max(10.0, seg_ate_fim / quota)
     return Acao(AcaoTipo.ENVIAR, intervalo_seg=intervalo)
+
+
+# ---------------------------------------------------------------------------
+# CRUD: criar / obter / listar
+# ---------------------------------------------------------------------------
+
+def _format_hhmm(t: time) -> str:
+    return f"{t.hour:02d}:{t.minute:02d}"
+
+
+def _parse_hhmm(s: str) -> time:
+    h, m = s.split(":")
+    return time(int(h), int(m))
+
+
+def _validar_payload(*, total_alvo: int, por_dia: int,
+                     dias_semana: set[int],
+                     janela_inicio: time, janela_fim: time,
+                     perfil_limite_diario: int) -> None:
+    if total_alvo <= 0:
+        raise ValueError("total_alvo deve ser > 0")
+    if por_dia <= 0:
+        raise ValueError("por_dia deve ser > 0")
+    if por_dia > perfil_limite_diario:
+        raise ValueError(
+            f"por_dia ({por_dia}) excede o limite diário do perfil "
+            f"({perfil_limite_diario})"
+        )
+    if not dias_semana:
+        raise ValueError("Pelo menos um dia da semana é obrigatório")
+    if janela_inicio >= janela_fim:
+        raise ValueError("janela_inicio deve ser menor que janela_fim")
+
+
+def _carregar_limite_perfil(conn, perfil_id: int) -> int:
+    row = conn.execute(
+        "SELECT limite_diario FROM perfis_remetente WHERE id = ?",
+        (perfil_id,),
+    ).fetchone()
+    if not row:
+        raise ValueError(f"Perfil {perfil_id} não encontrado")
+    return int(row["limite_diario"])
+
+
+def criar(*,
+    nome: str,
+    perfil_id: int,
+    filtros: dict,
+    total_alvo: int,
+    por_dia: int,
+    dias_semana: set[int],
+    janela_inicio: time,
+    janela_fim: time,
+) -> int:
+    with get_conn() as conn:
+        limite = _carregar_limite_perfil(conn, perfil_id)
+    _validar_payload(
+        total_alvo=total_alvo, por_dia=por_dia,
+        dias_semana=dias_semana,
+        janela_inicio=janela_inicio, janela_fim=janela_fim,
+        perfil_limite_diario=limite,
+    )
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO campanhas "
+            "(nome, perfil_id, filtro_estado, filtro_tribunal, "
+            " total_alvo, por_dia, dias_semana, janela_inicio, janela_fim, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'rascunho')",
+            (
+                nome.strip(), perfil_id,
+                filtros.get("estado") or None, filtros.get("tribunal") or None,
+                total_alvo, por_dia,
+                format_dias_semana(dias_semana),
+                _format_hhmm(janela_inicio), _format_hhmm(janela_fim),
+            ),
+        )
+        return cur.lastrowid
+
+
+def obter(campanha_id: int) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM campanhas WHERE id = ?", (campanha_id,)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+_ORDEM_STATUS = {"ativa": 0, "pausada": 1, "rascunho": 2,
+                 "concluida": 3, "cancelada": 4}
+
+
+def listar() -> list[dict]:
+    """Lista campanhas com nome do perfil resolvido. Ordenada por status, depois id desc."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT c.*, p.nome AS perfil_nome, p.email_remetente AS perfil_email "
+            "FROM campanhas c JOIN perfis_remetente p ON p.id = c.perfil_id "
+            "ORDER BY c.id DESC"
+        ).fetchall()
+    out = [dict(r) for r in rows]
+    out.sort(key=lambda c: (_ORDEM_STATUS.get(c["status"], 99), -c["id"]))
+    return out

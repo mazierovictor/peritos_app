@@ -7,6 +7,7 @@ from app.campanhas import classificar_erro_smtp, ErroSmtp
 from app.campanhas import (
     Acao, AcaoTipo, proxima_acao, EstadoCampanha,
 )
+from app.campanhas import criar, listar, obter
 
 
 def test_parse_dias_semana_basico():
@@ -163,3 +164,70 @@ def test_intervalo_minimo_10s():
     a = proxima_acao(_ec(enviados_hoje=150, por_dia=200), now)
     assert a.tipo is AcaoTipo.ENVIAR
     assert a.intervalo_seg >= 10
+
+
+# ---------------------------------------------------------------------------
+# Task 6 — criar / listar / obter
+# ---------------------------------------------------------------------------
+
+def test_criar_campanha_minima(db_temp, perfil_id):
+    cid = criar(
+        nome="TJSP janeiro",
+        perfil_id=perfil_id,
+        filtros={"estado": "SP", "tribunal": "tjsp"},
+        total_alvo=1000,
+        por_dia=200,
+        dias_semana={0, 1, 2, 3, 4},
+        janela_inicio=time(9, 0),
+        janela_fim=time(17, 0),
+    )
+    assert cid > 0
+    c = obter(cid)
+    assert c["nome"] == "TJSP janeiro"
+    assert c["status"] == "rascunho"
+    assert c["total_alvo"] == 1000
+    assert c["por_dia"] == 200
+    assert c["dias_semana"] == "0,1,2,3,4"
+    assert c["janela_inicio"] == "09:00"
+    assert c["filtro_estado"] == "SP"
+    assert c["enviados_total"] == 0
+
+
+def test_listar_ordena_por_status_depois_data(db_temp, perfil_id):
+    a = criar(nome="A", perfil_id=perfil_id, filtros={}, total_alvo=10, por_dia=5,
+              dias_semana={0,1,2,3,4}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    b = criar(nome="B", perfil_id=perfil_id, filtros={}, total_alvo=10, por_dia=5,
+              dias_semana={0,1,2,3,4}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    nomes = [c["nome"] for c in listar()]
+    # ambas rascunho — empata em status, ordena por id desc (mais nova primeiro)
+    assert nomes == ["B", "A"]
+
+
+def test_listar_traz_perfil_nome(db_temp, perfil_id):
+    cid = criar(nome="X", perfil_id=perfil_id, filtros={}, total_alvo=10, por_dia=5,
+                dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    out = listar()
+    assert out[0]["perfil_nome"] == "Teste"
+
+
+def test_obter_inexistente_retorna_none(db_temp):
+    assert obter(99999) is None
+
+
+def test_criar_com_dias_vazios_levanta(db_temp, perfil_id):
+    with pytest.raises(ValueError):
+        criar(nome="X", perfil_id=perfil_id, filtros={}, total_alvo=10, por_dia=5,
+              dias_semana=set(), janela_inicio=time(9,0), janela_fim=time(17,0))
+
+
+def test_criar_com_janela_invertida_levanta(db_temp, perfil_id):
+    with pytest.raises(ValueError):
+        criar(nome="X", perfil_id=perfil_id, filtros={}, total_alvo=10, por_dia=5,
+              dias_semana={0}, janela_inicio=time(17,0), janela_fim=time(9,0))
+
+
+def test_criar_com_por_dia_maior_que_limite_perfil_levanta(db_temp, perfil_id):
+    # perfil tem limite_diario=250 (fixture)
+    with pytest.raises(ValueError):
+        criar(nome="X", perfil_id=perfil_id, filtros={}, total_alvo=1000, por_dia=300,
+              dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
