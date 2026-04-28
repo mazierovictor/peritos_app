@@ -1193,32 +1193,13 @@ def _o_que(ag: dict) -> str:
         if alvo == "todos":
             return "Scraper · todos os tribunais (em sequência)"
         return f"Scraper {alvo.upper()}"
-    if ag.get("tipo") == "campanha":
-        partes = []
-        if ag.get("filtro_tribunal"):
-            partes.append((ag["filtro_tribunal"] or "").upper())
-        if ag.get("filtro_estado"):
-            partes.append(ag["filtro_estado"])
-        filtro = " · ".join(partes) if partes else "todos"
-        return f"Campanha · {filtro} · {ag.get('quantidade') or 0}/exec"
     return ag.get("tipo") or "—"
 
 
 def _ctx_agendamento_form(user: dict, request: Request, erro: str | None = None) -> dict:
-    with get_conn() as conn:
-        perfis = [dict(r) for r in conn.execute(
-            "SELECT id, nome, email_remetente, limite_diario "
-            "FROM perfis_remetente WHERE usuario_id = ? ORDER BY nome",
-            (user["id"],),
-        )]
-    ufs, tribunais = _ufs_e_tribunais()
-    tribunais_por_uf, ufs_por_tribunal = _mapping_uf_tribunal()
     return {
         "request": request, "user": user, "erro": erro,
         "scrapers": scraper_registry.listar(),
-        "perfis": perfis, "ufs": ufs, "tribunais": tribunais,
-        "tribunais_por_uf": tribunais_por_uf,
-        "ufs_por_tribunal": ufs_por_tribunal,
     }
 
 
@@ -1251,10 +1232,6 @@ def agendamentos_novo_submit(
     nome: str = Form(...),
     tipo: str = Form(...),
     alvo: str = Form(""),
-    perfil_id: str = Form(""),
-    filtro_estado: str = Form(""),
-    filtro_tribunal: str = Form(""),
-    quantidade: int = Form(50),
     frequencia: str = Form(...),
     hora: str = Form(...),
     data: str = Form(""),
@@ -1263,22 +1240,10 @@ def agendamentos_novo_submit(
 ):
     erro: str | None = None
 
-    if tipo == "scraper":
-        if not alvo:
-            erro = "Escolha qual scraper rodar."
-    elif tipo == "campanha":
-        if not perfil_id:
-            erro = "Escolha o perfil de remetente."
-        else:
-            with get_conn() as conn:
-                ok = conn.execute(
-                    "SELECT 1 FROM perfis_remetente WHERE id = ? AND usuario_id = ?",
-                    (int(perfil_id), user["id"]),
-                ).fetchone()
-            if not ok:
-                erro = "Perfil de remetente inválido."
-    else:
-        erro = "Tipo de agendamento inválido."
+    if tipo != "scraper":
+        erro = "Tipo de agendamento inválido (apenas 'scraper')."
+    elif not alvo:
+        erro = "Escolha qual scraper rodar."
 
     if erro is None:
         if frequencia == "uma_vez" and not data:
@@ -1292,19 +1257,16 @@ def agendamentos_novo_submit(
         return templates.TemplateResponse("agendamento_form.html",
                                           _ctx_agendamento_form(user, request, erro))
 
-    pid = int(perfil_id) if perfil_id else None
     ds = int(dia_semana) if dia_semana != "" else None
     dm = int(dia_mes) if dia_mes != "" else None
-    alvo_efetivo = alvo if tipo == "scraper" else ""
 
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO agendamentos (nome, tipo, alvo, perfil_id, filtro_estado, "
             "filtro_tribunal, quantidade, frequencia, hora, data, dia_semana, "
             "dia_mes, cron, ativo) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', 1)",
-            (nome.strip(), tipo, alvo_efetivo, pid,
-             filtro_estado or None, filtro_tribunal or None, int(quantidade),
+            "VALUES (?, 'scraper', ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, '', 1)",
+            (nome.strip(), alvo,
              frequencia, hora, data or None, ds, dm),
         )
     scheduler.recarregar()
