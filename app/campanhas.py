@@ -383,3 +383,53 @@ def editar(campanha_id: int, *,
                 campanha_id,
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# Task 9 — Funções de leitura
+# ---------------------------------------------------------------------------
+
+def enviados_hoje_campanha(campanha_id: int) -> int:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) c FROM envios "
+            "WHERE campanha_id = ? AND status = 'ok' "
+            "AND date(enviado_em) = date('now', 'localtime')",
+            (campanha_id,),
+        ).fetchone()
+    return int(row["c"])
+
+
+def enviados_hoje_perfil(perfil_id: int) -> int:
+    """Total de envios 'ok' do perfil hoje, EXCLUINDO testes."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) c FROM envios e "
+            "JOIN contatos c2 ON c2.id = e.contato_id "
+            "WHERE e.perfil_remetente_id = ? AND e.status = 'ok' "
+            "AND c2.tribunal != '_teste' "
+            "AND date(e.enviado_em) = date('now', 'localtime')",
+            (perfil_id,),
+        ).fetchone()
+    return int(row["c"])
+
+
+def montar_estado_campanha(campanha_id: int) -> EstadoCampanha:
+    c = obter(campanha_id)
+    if c is None:
+        raise ValueError(f"Campanha {campanha_id} não encontrada")
+    with get_conn() as conn:
+        limite = _carregar_limite_perfil(conn, c["perfil_id"])
+    return EstadoCampanha(
+        id=c["id"],
+        status=c["status"],
+        total_alvo=c["total_alvo"],
+        por_dia=c["por_dia"],
+        enviados_total=c["enviados_total"],
+        enviados_hoje=enviados_hoje_campanha(campanha_id),
+        enviados_hoje_perfil=enviados_hoje_perfil(c["perfil_id"]),
+        perfil_limite_diario=limite,
+        dias_semana=parse_dias_semana(c["dias_semana"]),
+        janela_inicio=_parse_hhmm(c["janela_inicio"]),
+        janela_fim=_parse_hhmm(c["janela_fim"]),
+    )

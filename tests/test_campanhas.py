@@ -11,6 +11,7 @@ from app.campanhas import criar, listar, obter
 from app.campanhas import (
     iniciar, pausar, retomar, cancelar, marcar_concluida, editar,
 )
+from app.campanhas import enviados_hoje_campanha, enviados_hoje_perfil, montar_estado_campanha
 
 
 def test_parse_dias_semana_basico():
@@ -313,3 +314,73 @@ def test_marcar_concluida(db_temp, perfil_id, monkeypatch):
     c = obter(cid)
     assert c["status"] == "concluida"
     assert c["concluida_em"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Task 9 — enviados_hoje_campanha, enviados_hoje_perfil, montar_estado_campanha
+# ---------------------------------------------------------------------------
+
+def _inserir_envio(conn, contato_id, perfil_id, *, campanha_id=None,
+                   status="ok", quando_iso="now"):
+    """Helper: insere uma linha em envios. quando_iso=None usa now."""
+    if quando_iso == "now":
+        conn.execute(
+            "INSERT INTO envios (contato_id, perfil_remetente_id, "
+            "campanha_id, status) VALUES (?, ?, ?, ?)",
+            (contato_id, perfil_id, campanha_id, status),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO envios (contato_id, perfil_remetente_id, "
+            "campanha_id, status, enviado_em) VALUES (?, ?, ?, ?, ?)",
+            (contato_id, perfil_id, campanha_id, status, quando_iso),
+        )
+
+
+def _criar_contato(conn, email="x@y.com", tribunal="tjsp"):
+    cur = conn.execute(
+        "INSERT INTO contatos (email, tribunal) VALUES (?, ?)",
+        (email, tribunal),
+    )
+    return cur.lastrowid
+
+
+def test_enviados_hoje_campanha_conta_so_ok_e_de_hoje(db_temp, perfil_id):
+    from app.db import get_conn
+    cid = criar(nome="X", perfil_id=perfil_id, filtros={}, total_alvo=100, por_dia=10,
+                dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    with get_conn() as conn:
+        c1 = _criar_contato(conn, "a@x.com")
+        c2 = _criar_contato(conn, "b@x.com")
+        c3 = _criar_contato(conn, "c@x.com")
+        _inserir_envio(conn, c1, perfil_id, campanha_id=cid)
+        _inserir_envio(conn, c2, perfil_id, campanha_id=cid)
+        _inserir_envio(conn, c3, perfil_id, campanha_id=cid, status="erro")
+        # ontem, não conta
+        _inserir_envio(conn, c1, perfil_id, campanha_id=cid,
+                       quando_iso="2020-01-01 12:00:00")
+    assert enviados_hoje_campanha(cid) == 2
+
+
+def test_enviados_hoje_perfil_ignora_teste(db_temp, perfil_id):
+    from app.db import get_conn
+    with get_conn() as conn:
+        c1 = _criar_contato(conn, "a@x.com", tribunal="tjsp")
+        c2 = _criar_contato(conn, "b@x.com", tribunal="_teste")
+        _inserir_envio(conn, c1, perfil_id)
+        _inserir_envio(conn, c2, perfil_id)
+    assert enviados_hoje_perfil(perfil_id) == 1
+
+
+def test_montar_estado_campanha_combina_tudo(db_temp, perfil_id, monkeypatch):
+    monkeypatch.setattr("app.campanhas._subir_thread", lambda cid: None)
+    cid = criar(nome="X", perfil_id=perfil_id, filtros={}, total_alvo=100, por_dia=10,
+                dias_semana={0,1,2,3,4}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    iniciar(cid)
+    e = montar_estado_campanha(cid)
+    assert e.id == cid
+    assert e.status == "ativa"
+    assert e.por_dia == 10
+    assert e.perfil_limite_diario == 250
+    assert e.dias_semana == {0,1,2,3,4}
+    assert e.janela_inicio == time(9, 0)
