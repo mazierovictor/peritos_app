@@ -643,3 +643,14 @@ def selecionar_proximo_contato(campanha_id: int) -> dict | None:
     }
     contatos = mailer.selecionar_contatos(filtros, limite=1, perfil_id=c["perfil_id"])
     return contatos[0] if contatos else None
+
+
+def reidratar() -> None:
+    """No startup, sobe thread para cada campanha em status='ativa'."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id FROM campanhas WHERE status = 'ativa'"
+        ).fetchall()
+    for r in rows:
+        log.info("[campanha %s] reidratando", r["id"])
+        _subir_thread(r["id"])

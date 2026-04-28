@@ -40,7 +40,7 @@ from .auth import (
 from .config import settings
 from .crypto import encrypt
 from .db import get_conn, init_db
-from . import bounce_checker, mailer, scheduler
+from . import bounce_checker, campanhas, mailer, scheduler
 from .scrapers import configs as scraper_configs
 from .scrapers import registry as scraper_registry
 from .scrapers import runner as scraper_runner
@@ -108,6 +108,7 @@ def _startup() -> None:
     init_db()
     garantir_usuarios_iniciais()
     scheduler.iniciar()
+    campanhas.reidratar()
 
 
 @app.on_event("shutdown")
