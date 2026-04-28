@@ -1,11 +1,10 @@
 """
-Agendador de scrapers e campanhas via APScheduler.
+Agendador de scrapers via APScheduler.
 
 Cada agendamento tem:
   - nome:         rótulo amigável
-  - tipo:         'scraper' | 'campanha'
-  - alvo:         (scraper) sigla do TJ
-  - perfil_id, filtro_estado, filtro_tribunal, quantidade  (campanha)
+  - tipo:         'scraper'
+  - alvo:         sigla do TJ (ou 'todos')
   - frequencia:   uma_vez | diario | semanal | mensal
   - hora:         "HH:MM"
   - data:         "YYYY-MM-DD"  (frequencia = uma_vez)
@@ -96,23 +95,6 @@ def _executar_job(ag_id: int) -> None:
                 scraper_runner.disparar(ag["alvo"])
                 _registrar_fim(run_id, "ok", f"Scraper {alvo.upper()} disparado")
 
-        elif ag["tipo"] == "campanha":
-            from . import mailer
-            if not ag.get("perfil_id"):
-                _registrar_fim(run_id, "erro", "Agendamento de campanha sem perfil_id")
-                return
-            estado = mailer.disparar(
-                ag["perfil_id"],
-                int(ag.get("quantidade") or 50),
-                {
-                    "estado": ag.get("filtro_estado") or None,
-                    "tribunal": ag.get("filtro_tribunal") or None,
-                },
-            )
-            msg = "Campanha disparada"
-            if estado is not None and getattr(estado, "mensagem", None):
-                msg = f"Campanha disparada · {estado.mensagem}"
-            _registrar_fim(run_id, "ok", msg)
         else:
             _registrar_fim(run_id, "erro", f"Tipo desconhecido: {ag.get('tipo')}")
     except Exception as e:

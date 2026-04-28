@@ -27,6 +27,16 @@
   </select>
   <input type="date" name="desde" value="{{ filtros.desde or '' }}">
   <input type="date" name="ate" value="{{ filtros.ate or '' }}">
+  <label>Campanha
+    <select name="campanha_id">
+      <option value="">— todas —</option>
+      {% for c in campanhas_disponiveis %}
+        <option value="{{ c.id }}" {% if filtro_campanha_id == c.id|string %}selected{% endif %}>
+          {{ c.nome }}
+        </option>
+      {% endfor %}
+    </select>
+  </label>
   <button type="submit" class="btn-primario">Filtrar</button>
   <a href="/historico" class="btn-secundario">Limpar</a>
 </form>

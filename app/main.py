@@ -18,7 +18,7 @@ from __future__ import annotations
 import ipaddress
 import re
 import shutil
-from datetime import datetime, timezone
+from datetime import datetime, time as _time, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
@@ -40,7 +40,7 @@ from .auth import (
 from .config import settings
 from .crypto import encrypt
 from .db import get_conn, init_db
-from . import bounce_checker, mailer, scheduler
+from . import bounce_checker, campanhas, mailer, scheduler
 from .scrapers import configs as scraper_configs
 from .scrapers import registry as scraper_registry
 from .scrapers import runner as scraper_runner
@@ -108,6 +108,7 @@ def _startup() -> None:
     init_db()
     garantir_usuarios_iniciais()
     scheduler.iniciar()
+    campanhas.reidratar()
 
 
 @app.on_event("shutdown")
@@ -133,6 +134,43 @@ def _ufs_e_tribunais() -> tuple[list[str], list[str]]:
             "AND tribunal != '_teste' ORDER BY tribunal"
         )]
     return ufs, tribunais
+
+
+def _perfis_para_form(user_id: int) -> list[dict]:
+    """Lista perfis do usuário e marca quais estão em uso por outra campanha."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT p.id, p.nome, p.email_remetente, p.limite_diario, "
+            "       (SELECT nome FROM campanhas "
+            "        WHERE perfil_id = p.id AND status IN ('ativa','pausada') "
+            "        LIMIT 1) AS uso_por "
+            "FROM perfis_remetente p "
+            "WHERE p.usuario_id = ? ORDER BY p.nome",
+            (user_id,),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["disabled"] = d["uso_por"] is not None
+        out.append(d)
+    return out
+
+
+def _parse_form_dias(valores: list[str]) -> set[int]:
+    out: set[int] = set()
+    for v in valores:
+        try:
+            i = int(v)
+            if 0 <= i <= 6:
+                out.add(i)
+        except ValueError:
+            pass
+    return out
+
+
+def _parse_form_hora(s: str) -> _time:
+    h, m = s.split(":")
+    return _time(int(h), int(m))
 
 
 def _mapping_uf_tribunal() -> tuple[dict[str, list[str]], dict[str, list[str]]]:
@@ -674,32 +712,46 @@ def perfil_verificar_bounces(pid: int, user: dict = Depends(requer_login)):
 # ─── Campanhas ─────────────────────────────────────────────────────────
 
 @app.get("/campanhas", response_class=HTMLResponse)
-def campanhas_form(request: Request, user: dict = Depends(requer_login)):
+def campanhas_lista(request: Request, user: dict = Depends(requer_login)):
+    items = campanhas.listar()
     with get_conn() as conn:
-        perfis = [dict(r) for r in conn.execute(
-            "SELECT * FROM perfis_remetente WHERE usuario_id = ? ORDER BY nome",
-            (user["id"],),
-        )]
-    ufs, tribunais = _ufs_e_tribunais()
-    ativas = []
-    for p in perfis:
-        e = mailer.estado(p["id"])
-        if e and not e["terminado"]:
-            ativas.append(e)
+        perfis_do_user = {r["id"] for r in conn.execute(
+            "SELECT id FROM perfis_remetente WHERE usuario_id = ?", (user["id"],)
+        ).fetchall()}
+    items = [c for c in items if c["perfil_id"] in perfis_do_user]
+    for c in items:
+        if c["status"] in ("ativa", "pausada"):
+            c["enviados_hoje"] = campanhas.enviados_hoje_campanha(c["id"])
     return templates.TemplateResponse("campanhas.html", {
-        "request": request, "user": user,
-        "perfis": perfis, "ufs": ufs, "tribunais": tribunais,
-        "execucoes_ativas": ativas,
+        "request": request, "user": user, "campanhas": items,
     })
 
 
-@app.post("/campanhas/disparar")
-def campanhas_disparar(
+@app.get("/campanhas/nova", response_class=HTMLResponse)
+def campanhas_nova_form(request: Request, user: dict = Depends(requer_login),
+                        erro: str | None = None):
+    ufs, tribunais = _ufs_e_tribunais()
+    return templates.TemplateResponse("campanha_form.html", {
+        "request": request, "user": user, "erro": erro,
+        "perfis": _perfis_para_form(user["id"]),
+        "ufs": ufs, "tribunais": tribunais,
+        "campanha": None,
+    })
+
+
+@app.post("/campanhas/nova")
+def campanhas_nova_submit(
+    request: Request,
     user: dict = Depends(requer_login),
+    nome: str = Form(...),
     perfil_id: int = Form(...),
     estado: str = Form(""),
     tribunal: str = Form(""),
-    total_alvo: int = Form(50),
+    total_alvo: int = Form(...),
+    por_dia: int = Form(...),
+    dias_semana: list[str] = Form(default=[]),
+    janela_inicio: str = Form(...),
+    janela_fim: str = Form(...),
 ):
     with get_conn() as conn:
         own = conn.execute(
@@ -708,31 +760,264 @@ def campanhas_disparar(
         ).fetchone()
     if not own:
         raise HTTPException(403)
-    filtros = {"estado": estado or None, "tribunal": tribunal or None}
-    mailer.disparar(perfil_id, total_alvo, filtros)
-    return RedirectResponse(url=f"/campanhas/acompanhar/{perfil_id}", status_code=303)
+    try:
+        cid = campanhas.criar(
+            nome=nome,
+            perfil_id=perfil_id,
+            filtros={"estado": estado, "tribunal": tribunal},
+            total_alvo=total_alvo,
+            por_dia=por_dia,
+            dias_semana=_parse_form_dias(dias_semana),
+            janela_inicio=_parse_form_hora(janela_inicio),
+            janela_fim=_parse_form_hora(janela_fim),
+        )
+    except ValueError as e:
+        ufs, tribunais = _ufs_e_tribunais()
+        return templates.TemplateResponse("campanha_form.html", {
+            "request": request, "user": user, "erro": str(e),
+            "perfis": _perfis_para_form(user["id"]),
+            "ufs": ufs, "tribunais": tribunais, "campanha": None,
+        })
+    return RedirectResponse(url=f"/campanhas/{cid}", status_code=303)
 
 
-@app.get("/campanhas/acompanhar/{perfil_id}", response_class=HTMLResponse)
-def campanhas_acompanhar(perfil_id: int, request: Request, user: dict = Depends(requer_login)):
-    return templates.TemplateResponse("campanha_acompanhar.html", {
-        "request": request, "user": user,
-        "perfil_id": perfil_id, "estado": mailer.estado(perfil_id),
+def _confere_ownership(user_id: int, campanha_id: int) -> dict:
+    c = campanhas.obter(campanha_id)
+    if c is None:
+        raise HTTPException(404)
+    with get_conn() as conn:
+        own = conn.execute(
+            "SELECT 1 FROM perfis_remetente WHERE id = ? AND usuario_id = ?",
+            (c["perfil_id"], user_id),
+        ).fetchone()
+    if not own:
+        raise HTTPException(403)
+    return c
+
+
+_DIAS_SEMANA_PT = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
+
+
+def _calcular_proximos_7_dias(c: dict, enviados_hoje: int) -> list[dict]:
+    from datetime import date, timedelta
+    dias = campanhas.parse_dias_semana(c["dias_semana"])
+    out = []
+    hoje = date.today()
+    for i in range(7):
+        d = hoje + timedelta(days=i)
+        wd = d.weekday()
+        item = {"data": d.strftime("%d/%m"), "dia_nome": _DIAS_SEMANA_PT[wd]}
+        if c["status"] == "concluida":
+            item["tipo"] = "concluida"
+        elif wd not in dias:
+            item["tipo"] = "fora"
+        else:
+            item["tipo"] = "envio"
+            falta = c["total_alvo"] - c["enviados_total"]
+            if i == 0:
+                item["previsto"] = max(0, min(c["por_dia"] - enviados_hoje, falta))
+            else:
+                item["previsto"] = max(0, min(c["por_dia"], falta))
+        out.append(item)
+    return out
+
+
+def _estimar_conclusao(c: dict, enviados_hoje: int) -> str | None:
+    if c["status"] not in ("ativa", "pausada"):
+        return None
+    falta = c["total_alvo"] - c["enviados_total"]
+    if falta <= 0:
+        return None
+    dias = campanhas.parse_dias_semana(c["dias_semana"])
+    if not dias:
+        return None
+    cabe_hoje = max(0, c["por_dia"] - enviados_hoje)
+    falta -= cabe_hoje
+    if falta <= 0:
+        return "hoje"
+    dias_uteis_necessarios = -(-falta // c["por_dia"])  # ceil
+    from datetime import date, timedelta
+    cur = date.today()
+    contados = 0
+    while contados < dias_uteis_necessarios:
+        cur += timedelta(days=1)
+        if cur.weekday() in dias:
+            contados += 1
+    return cur.strftime("%a %d/%m/%Y")
+
+
+def _texto_status_worker(c: dict, enviados_hoje: int) -> str:
+    if c["status"] == "rascunho":
+        return "Rascunho — clique em Iniciar"
+    if c["status"] == "pausada":
+        return "Pausada — clique em Retomar"
+    if c["status"] == "cancelada":
+        return "Cancelada"
+    if c["status"] == "concluida":
+        return "Concluída"
+    if enviados_hoje >= c["por_dia"]:
+        return "Quota diária atingida — retomará no próximo dia configurado"
+    return "Ativa — aguardando próximo envio"
+
+
+def _ctx_detalhe(user: dict, campanha_id: int) -> dict:
+    """Monta o contexto para campanha_detalhe / parcial."""
+    c = _confere_ownership(user["id"], campanha_id)
+    with get_conn() as conn:
+        p = conn.execute(
+            "SELECT nome, email_remetente FROM perfis_remetente WHERE id = ?",
+            (c["perfil_id"],),
+        ).fetchone()
+        c["perfil_nome"] = p["nome"]
+        c["perfil_email"] = p["email_remetente"]
+
+        enviados_hoje = campanhas.enviados_hoje_campanha(campanha_id)
+        progresso_pct = (c["enviados_total"] * 100 // c["total_alvo"]) if c["total_alvo"] else 0
+
+        rows_hist = conn.execute(
+            "SELECT date(enviado_em, 'localtime') AS data, "
+            "  SUM(status='ok') AS enviados, "
+            "  SUM(status='erro') AS erros, "
+            "  SUM(status IN ('bounce','bounce_soft')) AS bounces "
+            "FROM envios WHERE campanha_id = ? "
+            "GROUP BY 1 ORDER BY 1 DESC LIMIT 30",
+            (campanha_id,),
+        ).fetchall()
+        historico_por_dia = []
+        for r in rows_hist:
+            row = dict(r)
+            ab = conn.execute(
+                "SELECT COUNT(*) c FROM envios e "
+                "JOIN aberturas a ON a.envio_id = e.id "
+                "WHERE e.campanha_id = ? AND date(e.enviado_em,'localtime')=?",
+                (campanha_id, row["data"]),
+            ).fetchone()
+            row["aberturas"] = ab["c"]
+            historico_por_dia.append(row)
+
+        rows_ult = conn.execute(
+            "SELECT strftime('%H:%M', e.enviado_em, 'localtime') AS hora, "
+            "  c2.email, e.status FROM envios e "
+            "JOIN contatos c2 ON c2.id = e.contato_id "
+            "WHERE e.campanha_id = ? ORDER BY e.id DESC LIMIT 10",
+            (campanha_id,),
+        ).fetchall()
+        ultimos = [dict(r) for r in rows_ult]
+
+    proximos_7 = _calcular_proximos_7_dias(c, enviados_hoje)
+    estimativa = _estimar_conclusao(c, enviados_hoje)
+    status_worker = _texto_status_worker(c, enviados_hoje)
+
+    return {
+        "campanha": c,
+        "enviados_hoje": enviados_hoje,
+        "progresso_pct": progresso_pct,
+        "historico_por_dia": historico_por_dia,
+        "ultimos": ultimos,
+        "proximos_7": proximos_7,
+        "estimativa_conclusao": estimativa,
+        "status_worker_texto": status_worker,
+    }
+
+
+@app.get("/campanhas/{campanha_id}", response_class=HTMLResponse)
+def campanha_detalhe(campanha_id: int, request: Request,
+                      user: dict = Depends(requer_login)):
+    ctx = _ctx_detalhe(user, campanha_id)
+    ctx.update(request=request, user=user)
+    return templates.TemplateResponse("campanha_detalhe.html", ctx)
+
+
+@app.get("/campanhas/{campanha_id}/parcial", response_class=HTMLResponse)
+def campanha_detalhe_parcial(campanha_id: int, request: Request,
+                              user: dict = Depends(requer_login)):
+    ctx = _ctx_detalhe(user, campanha_id)
+    ctx.update(request=request, user=user)
+    return templates.TemplateResponse("_campanha_detalhe_corpo.html", ctx)
+
+
+@app.post("/campanhas/{campanha_id}/iniciar")
+def campanha_iniciar(campanha_id: int, user: dict = Depends(requer_login)):
+    _confere_ownership(user["id"], campanha_id)
+    try:
+        campanhas.iniciar(campanha_id)
+    except ValueError as e:
+        return RedirectResponse(url=f"/campanhas/{campanha_id}?erro={e}", status_code=303)
+    return RedirectResponse(url=f"/campanhas/{campanha_id}", status_code=303)
+
+
+@app.post("/campanhas/{campanha_id}/pausar")
+def campanha_pausar(campanha_id: int, user: dict = Depends(requer_login)):
+    _confere_ownership(user["id"], campanha_id)
+    campanhas.pausar(campanha_id, motivo="Pausada manualmente")
+    return RedirectResponse(url=f"/campanhas/{campanha_id}", status_code=303)
+
+
+@app.post("/campanhas/{campanha_id}/retomar")
+def campanha_retomar(campanha_id: int, user: dict = Depends(requer_login)):
+    _confere_ownership(user["id"], campanha_id)
+    try:
+        campanhas.retomar(campanha_id)
+    except ValueError:
+        pass
+    return RedirectResponse(url=f"/campanhas/{campanha_id}", status_code=303)
+
+
+@app.post("/campanhas/{campanha_id}/cancelar")
+def campanha_cancelar(campanha_id: int, user: dict = Depends(requer_login)):
+    _confere_ownership(user["id"], campanha_id)
+    campanhas.cancelar(campanha_id)
+    return RedirectResponse(url=f"/campanhas/{campanha_id}", status_code=303)
+
+
+@app.get("/campanhas/{campanha_id}/editar", response_class=HTMLResponse)
+def campanha_editar_form(campanha_id: int, request: Request,
+                          user: dict = Depends(requer_login),
+                          erro: str | None = None):
+    c = _confere_ownership(user["id"], campanha_id)
+    ufs, tribunais = _ufs_e_tribunais()
+    return templates.TemplateResponse("campanha_form.html", {
+        "request": request, "user": user, "erro": erro,
+        "perfis": _perfis_para_form(user["id"]),
+        "ufs": ufs, "tribunais": tribunais,
+        "campanha": c,
     })
 
 
-@app.get("/campanhas/estado/{perfil_id}", response_class=HTMLResponse)
-def campanhas_estado(perfil_id: int, request: Request, user: dict = Depends(requer_login)):
-    return templates.TemplateResponse("_campanha_estado.html", {
-        "request": request, "user": user,
-        "perfil_id": perfil_id, "estado": mailer.estado(perfil_id),
-    })
-
-
-@app.post("/campanhas/cancelar/{perfil_id}")
-def campanhas_cancelar(perfil_id: int, user: dict = Depends(requer_login)):
-    mailer.cancelar(perfil_id)
-    return RedirectResponse(url=f"/campanhas/acompanhar/{perfil_id}", status_code=303)
+@app.post("/campanhas/{campanha_id}/editar")
+def campanha_editar(
+    campanha_id: int, request: Request,
+    user: dict = Depends(requer_login),
+    nome: str = Form(...),
+    estado: str = Form(""),
+    tribunal: str = Form(""),
+    total_alvo: int = Form(...),
+    por_dia: int = Form(...),
+    dias_semana: list[str] = Form(default=[]),
+    janela_inicio: str = Form(...),
+    janela_fim: str = Form(...),
+):
+    _confere_ownership(user["id"], campanha_id)
+    try:
+        campanhas.editar(
+            campanha_id,
+            nome=nome,
+            filtros={"estado": estado, "tribunal": tribunal},
+            total_alvo=total_alvo,
+            por_dia=por_dia,
+            dias_semana=_parse_form_dias(dias_semana),
+            janela_inicio=_parse_form_hora(janela_inicio),
+            janela_fim=_parse_form_hora(janela_fim),
+        )
+    except ValueError as e:
+        c = campanhas.obter(campanha_id)
+        ufs, tribunais = _ufs_e_tribunais()
+        return templates.TemplateResponse("campanha_form.html", {
+            "request": request, "user": user, "erro": str(e),
+            "perfis": _perfis_para_form(user["id"]),
+            "ufs": ufs, "tribunais": tribunais, "campanha": c,
+        })
+    return RedirectResponse(url=f"/campanhas/{campanha_id}", status_code=303)
 
 
 # ─── Envio de teste ────────────────────────────────────────────────────
@@ -896,6 +1181,7 @@ def historico(
     user: dict = Depends(requer_login),
     perfil_id: str = "", status: str = "",
     desde: str = "", ate: str = "", pagina: int = 1,
+    campanha_id: str = "",
 ):
     por_pagina = 100
     pagina = max(1, pagina)
@@ -922,6 +1208,8 @@ def historico(
         where.append("date(e.enviado_em) >= date(?)"); args.append(desde)
     if ate:
         where.append("date(e.enviado_em) <= date(?)"); args.append(ate)
+    if campanha_id and campanha_id.isdigit():
+        where.append("e.campanha_id = ?"); args.append(int(campanha_id))
     sql_where = " AND ".join(where)
 
     base_from = "FROM envios e JOIN contatos c ON c.id = e.contato_id"
@@ -965,8 +1253,11 @@ def historico(
             """,
             [*args, por_pagina, (pagina - 1) * por_pagina],
         ).fetchall()
+        campanhas_disponiveis = [dict(r) for r in conn.execute(
+            "SELECT id, nome FROM campanhas ORDER BY id DESC"
+        ).fetchall()]
 
-    filtros = {"perfil_id": perfil_id, "status": status, "desde": desde, "ate": ate}
+    filtros = {"perfil_id": perfil_id, "status": status, "desde": desde, "ate": ate, "campanha_id": campanha_id}
 
     def qs_pag(p: int) -> str:
         return urlencode({**filtros, "pagina": p})
@@ -978,6 +1269,8 @@ def historico(
         "filtros": filtros, "pagina": pagina, "por_pagina": por_pagina,
         "paginas_total": max(1, (total + por_pagina - 1) // por_pagina),
         "qs_pag": qs_pag,
+        "campanhas_disponiveis": campanhas_disponiveis,
+        "filtro_campanha_id": campanha_id,
     })
 
 
@@ -1192,32 +1485,13 @@ def _o_que(ag: dict) -> str:
         if alvo == "todos":
             return "Scraper · todos os tribunais (em sequência)"
         return f"Scraper {alvo.upper()}"
-    if ag.get("tipo") == "campanha":
-        partes = []
-        if ag.get("filtro_tribunal"):
-            partes.append((ag["filtro_tribunal"] or "").upper())
-        if ag.get("filtro_estado"):
-            partes.append(ag["filtro_estado"])
-        filtro = " · ".join(partes) if partes else "todos"
-        return f"Campanha · {filtro} · {ag.get('quantidade') or 0}/exec"
     return ag.get("tipo") or "—"
 
 
 def _ctx_agendamento_form(user: dict, request: Request, erro: str | None = None) -> dict:
-    with get_conn() as conn:
-        perfis = [dict(r) for r in conn.execute(
-            "SELECT id, nome, email_remetente, limite_diario "
-            "FROM perfis_remetente WHERE usuario_id = ? ORDER BY nome",
-            (user["id"],),
-        )]
-    ufs, tribunais = _ufs_e_tribunais()
-    tribunais_por_uf, ufs_por_tribunal = _mapping_uf_tribunal()
     return {
         "request": request, "user": user, "erro": erro,
         "scrapers": scraper_registry.listar(),
-        "perfis": perfis, "ufs": ufs, "tribunais": tribunais,
-        "tribunais_por_uf": tribunais_por_uf,
-        "ufs_por_tribunal": ufs_por_tribunal,
     }
 
 
@@ -1250,10 +1524,6 @@ def agendamentos_novo_submit(
     nome: str = Form(...),
     tipo: str = Form(...),
     alvo: str = Form(""),
-    perfil_id: str = Form(""),
-    filtro_estado: str = Form(""),
-    filtro_tribunal: str = Form(""),
-    quantidade: int = Form(50),
     frequencia: str = Form(...),
     hora: str = Form(...),
     data: str = Form(""),
@@ -1262,22 +1532,10 @@ def agendamentos_novo_submit(
 ):
     erro: str | None = None
 
-    if tipo == "scraper":
-        if not alvo:
-            erro = "Escolha qual scraper rodar."
-    elif tipo == "campanha":
-        if not perfil_id:
-            erro = "Escolha o perfil de remetente."
-        else:
-            with get_conn() as conn:
-                ok = conn.execute(
-                    "SELECT 1 FROM perfis_remetente WHERE id = ? AND usuario_id = ?",
-                    (int(perfil_id), user["id"]),
-                ).fetchone()
-            if not ok:
-                erro = "Perfil de remetente inválido."
-    else:
-        erro = "Tipo de agendamento inválido."
+    if tipo != "scraper":
+        erro = "Tipo de agendamento inválido (apenas 'scraper')."
+    elif not alvo:
+        erro = "Escolha qual scraper rodar."
 
     if erro is None:
         if frequencia == "uma_vez" and not data:
@@ -1291,19 +1549,16 @@ def agendamentos_novo_submit(
         return templates.TemplateResponse("agendamento_form.html",
                                           _ctx_agendamento_form(user, request, erro))
 
-    pid = int(perfil_id) if perfil_id else None
     ds = int(dia_semana) if dia_semana != "" else None
     dm = int(dia_mes) if dia_mes != "" else None
-    alvo_efetivo = alvo if tipo == "scraper" else ""
 
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO agendamentos (nome, tipo, alvo, perfil_id, filtro_estado, "
             "filtro_tribunal, quantidade, frequencia, hora, data, dia_semana, "
             "dia_mes, cron, ativo) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', 1)",
-            (nome.strip(), tipo, alvo_efetivo, pid,
-             filtro_estado or None, filtro_tribunal or None, int(quantidade),
+            "VALUES (?, 'scraper', ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, '', 1)",
+            (nome.strip(), alvo,
              frequencia, hora, data or None, ds, dm),
         )
     scheduler.recarregar()

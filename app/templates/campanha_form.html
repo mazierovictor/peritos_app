@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block titulo %}{{ "Editar" if campanha else "Nova" }} campanha — Peritos{% endblock %}
+{% block conteudo %}
+<a href="/campanhas{% if campanha %}/{{ campanha.id }}{% endif %}" class="voltar">← Voltar</a>
+
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">{{ "Editando" if campanha else "Cadastrando" }}</div>
+    <h1>{{ "Editar campanha" if campanha else "Nova campanha" }}</h1>
+  </div>
+</header>
+
+{% if erro %}<div class="alerta-erro">{{ erro }}</div>{% endif %}
+
+{% set acao = "/campanhas/" ~ campanha.id ~ "/editar" if campanha else "/campanhas/nova" %}
+<form method="post" action="{{ acao }}" class="form-largo">
+  <fieldset>
+    <legend>Identificação</legend>
+    <label>Nome
+      <input type="text" name="nome" required value="{{ campanha.nome if campanha else '' }}"
+             placeholder="Ex.: TJSP janeiro">
+    </label>
+    <label>Perfil de remetente
+      <select name="perfil_id" required {% if campanha %}disabled{% endif %}>
+        {% for p in perfis %}
+        <option value="{{ p.id }}"
+          {% if p.disabled %}disabled{% endif %}
+          {% if campanha and campanha.perfil_id == p.id %}selected{% endif %}>
+          {{ p.nome }} &lt;{{ p.email_remetente }}&gt; — limite {{ p.limite_diario }}/dia
+          {% if p.disabled %}(em uso por "{{ p.uso_por }}"){% endif %}
+        </option>
+        {% endfor %}
+      </select>
+      {% if campanha %}<input type="hidden" name="perfil_id" value="{{ campanha.perfil_id }}">{% endif %}
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Filtros de contato</legend>
+    <div class="grade-2">
+      <label>UF
+        <select name="estado">
+          <option value="">— todos —</option>
+          {% for uf in ufs %}
+            <option value="{{ uf }}" {% if campanha and campanha.filtro_estado == uf %}selected{% endif %}>{{ uf }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Tribunal
+        <select name="tribunal">
+          <option value="">— todos —</option>
+          {% for tj in tribunais %}
+            <option value="{{ tj }}" {% if campanha and campanha.filtro_tribunal == tj %}selected{% endif %}>{{ tj|upper }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Meta e ritmo</legend>
+    <div class="grade-2">
+      <label>Total a enviar
+        <input type="number" name="total_alvo" min="1" required
+               value="{{ campanha.total_alvo if campanha else 1000 }}">
+      </label>
+      <label>Por dia (máx)
+        <input type="number" name="por_dia" min="1" required
+               value="{{ campanha.por_dia if campanha else 200 }}">
+        <small class="cinza">Não pode passar do limite diário do perfil escolhido.</small>
+      </label>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Dias da semana</legend>
+    {% set selecionados = (campanha.dias_semana or '0,1,2,3,4').split(',') %}
+    {% for valor, rotulo in [('0','Seg'),('1','Ter'),('2','Qua'),('3','Qui'),('4','Sex'),('5','Sáb'),('6','Dom')] %}
+    <label class="inline">
+      <input type="checkbox" name="dias_semana" value="{{ valor }}"
+             {% if valor in selecionados %}checked{% endif %}> {{ rotulo }}
+    </label>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>Janela horária</legend>
+    <div class="grade-2">
+      <label>Início
+        <input type="time" name="janela_inicio" required
+               value="{{ campanha.janela_inicio if campanha else '09:00' }}">
+      </label>
+      <label>Fim
+        <input type="time" name="janela_fim" required
+               value="{{ campanha.janela_fim if campanha else '17:00' }}">
+      </label>
+    </div>
+    <small class="cinza">Os envios serão espalhados ao longo dessa janela. Fuso de Brasília.</small>
+  </fieldset>
+
+  <button type="submit" class="btn-primario">{{ "Salvar" if campanha else "Criar como rascunho" }}</button>
+</form>
+{% endblock %}

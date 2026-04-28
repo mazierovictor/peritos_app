@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block titulo %}{{ campanha.nome }} — Campanha{% endblock %}
+{% block conteudo %}
+<a href="/campanhas" class="voltar">← Campanhas</a>
+
+<header class="pagina-header">
+  <div>
+    <div class="eyebrow">Campanha</div>
+    <h1>{{ campanha.nome }}</h1>
+    <p class="sub">{{ campanha.perfil_nome }} &lt;{{ campanha.perfil_email }}&gt;
+      {% if campanha.filtro_estado or campanha.filtro_tribunal %}
+        · {{ (campanha.filtro_tribunal or '')|upper }}{% if campanha.filtro_estado %} · {{ campanha.filtro_estado }}{% endif %}
+      {% endif %}
+    </p>
+  </div>
+  <div class="pagina-header-acoes">
+    {% if campanha.status == 'rascunho' %}
+      <a href="/campanhas/{{ campanha.id }}/editar" class="btn-secundario">Editar</a>
+      <form method="post" action="/campanhas/{{ campanha.id }}/iniciar" class="inline">
+        <button class="btn-primario">Iniciar</button>
+      </form>
+    {% elif campanha.status == 'ativa' %}
+      <form method="post" action="/campanhas/{{ campanha.id }}/pausar" class="inline">
+        <button class="btn-secundario">Pausar</button>
+      </form>
+    {% elif campanha.status == 'pausada' %}
+      <form method="post" action="/campanhas/{{ campanha.id }}/retomar" class="inline">
+        <button class="btn-primario">Retomar</button>
+      </form>
+    {% endif %}
+    {% if campanha.status in ('rascunho','ativa','pausada') %}
+      <form method="post" action="/campanhas/{{ campanha.id }}/cancelar" class="inline"
+            onsubmit="return confirm('Cancelar a campanha?');">
+        <button class="btn-link erro">Cancelar</button>
+      </form>
+    {% endif %}
+  </div>
+</header>
+
+{% include "_campanha_detalhe_corpo.html" %}
+{% endblock %}
