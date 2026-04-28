@@ -1,0 +1,106 @@
+<div id="corpo"
+     {% if campanha.status == 'ativa' %}
+       hx-get="/campanhas/{{ campanha.id }}/parcial"
+       hx-trigger="every 5s"
+       hx-swap="outerHTML"
+     {% endif %}>
+
+{% if campanha.pausa_motivo %}
+<div class="alerta-erro" style="margin-bottom:16px">
+  <strong>⚠️ Pausada:</strong> {{ campanha.pausa_motivo }}
+</div>
+{% endif %}
+
+<section class="bloco">
+  <h2>Progresso geral</h2>
+  <div class="progress grande">
+    <div class="progress-bar" style="width: {{ progresso_pct }}%"></div>
+  </div>
+  <p>
+    <strong>{{ campanha.enviados_total }}</strong> de
+    <strong>{{ campanha.total_alvo }}</strong>
+    ({{ progresso_pct }}%)
+    {% if estimativa_conclusao %}
+      · estimativa de conclusão: <strong>{{ estimativa_conclusao }}</strong>
+    {% endif %}
+  </p>
+</section>
+
+<section class="bloco">
+  <h2>Hoje</h2>
+  {% if campanha.status in ('ativa','pausada') %}
+    <p>
+      <strong>{{ enviados_hoje }}/{{ campanha.por_dia }}</strong> enviados ·
+      janela <strong>{{ campanha.janela_inicio }}–{{ campanha.janela_fim }}</strong>
+    </p>
+    <p class="cinza">{{ status_worker_texto }}</p>
+  {% else %}
+    <p class="cinza">Campanha {{ campanha.status }}.</p>
+  {% endif %}
+</section>
+
+<section class="bloco">
+  <h2>Próximos 7 dias</h2>
+  <table class="tabela">
+    <thead><tr><th>Data</th><th>Dia</th><th>Previsto</th></tr></thead>
+    <tbody>
+      {% for d in proximos_7 %}
+      <tr>
+        <td>{{ d.data }}</td>
+        <td>{{ d.dia_nome }}</td>
+        <td>
+          {% if d.tipo == 'envio' %}{{ d.previsto }}
+          {% elif d.tipo == 'fora' %}<span class="cinza">fora dos dias</span>
+          {% elif d.tipo == 'concluida' %}<span class="cinza">concluída</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="bloco">
+  <h2>Histórico por dia</h2>
+  {% if historico_por_dia %}
+  <table class="tabela">
+    <thead><tr><th>Data</th><th>Enviados</th><th>Erros</th><th>Bounces</th><th>Aberturas</th></tr></thead>
+    <tbody>
+      {% for h in historico_por_dia %}
+      <tr>
+        <td><a href="/historico?campanha_id={{ campanha.id }}">{{ h.data }}</a></td>
+        <td>{{ h.enviados }}</td>
+        <td>{{ h.erros }}</td>
+        <td>{{ h.bounces }}</td>
+        <td>{{ h.aberturas }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="cinza">Nenhum envio registrado ainda.</p>
+  {% endif %}
+</section>
+
+<section class="bloco">
+  <h2>Últimos envios</h2>
+  {% if ultimos %}
+  <table class="tabela">
+    <thead><tr><th>Hora</th><th>E-mail</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for u in ultimos %}
+      <tr>
+        <td>{{ u.hora }}</td>
+        <td>{{ u.email }}</td>
+        <td><span class="status status-{{ u.status }}">{{ u.status }}</span></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p><a href="/historico?campanha_id={{ campanha.id }}">Ver tudo →</a></p>
+  {% else %}
+  <p class="cinza">Nenhum envio registrado ainda.</p>
+  {% endif %}
+</section>
+
+</div>

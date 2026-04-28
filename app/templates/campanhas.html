@@ -3,68 +3,52 @@
 {% block conteudo %}
 <header class="pagina-header">
   <div>
-    <div class="eyebrow">Disparo</div>
-    <h1>Nova campanha</h1>
-    <p class="sub">Escolha um perfil de remetente, filtre os contatos e dispare. A execução respeita o limite diário e faz pausa entre envios.</p>
+    <div class="eyebrow">Disparo persistente</div>
+    <h1>Campanhas</h1>
+    <p class="sub">Cada campanha tem objetivo total, quota diária e janela de envio. O sistema toca sozinho até concluir.</p>
+  </div>
+  <div class="pagina-header-acoes">
+    <a href="/campanhas/nova" class="btn-primario">+ Nova campanha</a>
   </div>
 </header>
 
-{% if not perfis %}
-<div class="alerta-erro">Você precisa <a href="/perfis/novo">criar um perfil de remetente</a> antes de disparar uma campanha.</div>
+{% if not campanhas %}
+<div class="bloco vazio" style="padding:32px; text-align:center">
+  Nenhuma campanha ainda. <a href="/campanhas/nova">Criar a primeira</a>.
+</div>
 {% else %}
-
-<form method="post" action="/campanhas/disparar" class="form-largo">
-  <fieldset>
-    <legend>Quem envia</legend>
-    <label>Perfil de remetente
-      <select name="perfil_id" required>
-        {% for p in perfis %}
-        <option value="{{ p.id }}">{{ p.nome }} &lt;{{ p.email_remetente }}&gt; — limite {{ p.limite_diario }}/dia</option>
-        {% endfor %}
-      </select>
-    </label>
-  </fieldset>
-
-  <fieldset>
-    <legend>Quem recebe</legend>
-    <div class="grade-2">
-      <label>UF
-        <select name="estado">
-          <option value="">— todos —</option>
-          {% for uf in ufs %}<option value="{{ uf }}">{{ uf }}</option>{% endfor %}
-        </select>
-      </label>
-      <label>Tribunal
-        <select name="tribunal">
-          <option value="">— todos —</option>
-          {% for tj in tribunais %}<option value="{{ tj }}">{{ tj|upper }}</option>{% endfor %}
-        </select>
-      </label>
-    </div>
-    <label>Quantidade máxima nesta execução
-      <input type="number" name="total_alvo" value="50" min="1" max="500" required>
-      <small class="cinza">Será limitada também pelo limite diário do perfil.</small>
-    </label>
-  </fieldset>
-
-  <button type="submit" class="btn-primario">Iniciar campanha →</button>
-</form>
-
-{% if execucoes_ativas %}
-<section class="bloco" style="margin-top:24px">
-  <h2>Em andamento</h2>
-  <ul class="lista-limpa">
-    {% for e in execucoes_ativas %}
-    <li>
-      <a href="/campanhas/acompanhar/{{ e.perfil_id }}">
-        Perfil #{{ e.perfil_id }} — {{ e.enviados }}/{{ e.total_alvo }} enviados
-        ({{ e.erros }} erros)
-      </a>
-    </li>
+<table class="tabela espacada">
+  <thead>
+    <tr>
+      <th>Nome</th>
+      <th>Perfil</th>
+      <th>Status</th>
+      <th>Progresso</th>
+      <th>Hoje</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for c in campanhas %}
+    <tr>
+      <td><strong>{{ c.nome }}</strong></td>
+      <td>{{ c.perfil_nome }}<br><small class="cinza">{{ c.perfil_email }}</small></td>
+      <td><span class="status status-{{ c.status }}">{{ c.status }}</span></td>
+      <td>
+        <div class="progress" title="{{ c.enviados_total }} de {{ c.total_alvo }}">
+          <div class="progress-bar" style="width: {{ (c.enviados_total * 100 // c.total_alvo) if c.total_alvo else 0 }}%"></div>
+        </div>
+        <small class="cinza">{{ c.enviados_total }}/{{ c.total_alvo }}</small>
+      </td>
+      <td>
+        {% if c.status in ('ativa', 'pausada') %}
+          {{ c.enviados_hoje }}/{{ c.por_dia }}
+        {% else %}—{% endif %}
+      </td>
+      <td><a href="/campanhas/{{ c.id }}" class="btn-secundario">Abrir →</a></td>
+    </tr>
     {% endfor %}
-  </ul>
-</section>
-{% endif %}
-
+  </tbody>
+</table>
 {% endif %}
 {% endblock %}
