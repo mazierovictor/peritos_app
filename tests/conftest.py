@@ -31,6 +31,10 @@ def perfil_id(db_temp):
     from app.db import get_conn
 
     with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO usuarios (id, email, nome, senha_hash) "
+            "VALUES (1, 'usuario@ex.com', 'Usuario Teste', 'hash')",
+        )
         cur = conn.execute(
             "INSERT INTO perfis_remetente "
             "(usuario_id, nome, email_remetente, smtp_host, smtp_port, "
