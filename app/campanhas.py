@@ -8,14 +8,20 @@ O estado runtime das threads vivas fica em `_threads_runtime` (memória).
 from __future__ import annotations
 
 import enum
+import logging
 import re
+import secrets
 import smtplib
 import threading
+import time as time_mod  # IMPORTANTE: alias para não colidir com `from datetime import time`
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 
 from .db import get_conn
 from . import mailer
+from .crypto import decrypt
+
+log = logging.getLogger("peritos.campanhas")
 
 
 class ErroSmtp(enum.Enum):
@@ -253,6 +259,39 @@ def listar() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# SMTP session manager
+# ---------------------------------------------------------------------------
+
+class _SmtpSession:
+    """Mantém a conexão SMTP do perfil, reabre se cair, fecha em sleeps longos."""
+    def __init__(self, perfil: dict):
+        self.perfil = perfil
+        self._server: smtplib.SMTP | None = None
+
+    def garantir_conectado(self) -> smtplib.SMTP:
+        if self._server is not None:
+            try:
+                self._server.noop()
+                return self._server
+            except Exception:
+                self._server = None
+        senha = decrypt(self.perfil["smtp_senha_enc"])
+        s = smtplib.SMTP(self.perfil["smtp_host"], self.perfil["smtp_port"], timeout=30)
+        s.starttls()
+        s.login(self.perfil["email_remetente"], senha)
+        self._server = s
+        return s
+
+    def fechar(self) -> None:
+        if self._server is not None:
+            try:
+                self._server.quit()
+            except Exception:
+                pass
+            self._server = None
+
+
+# ---------------------------------------------------------------------------
 # Runtime state (in-memory only) + thread management
 # ---------------------------------------------------------------------------
 
@@ -271,12 +310,166 @@ class RuntimeEstado:
     mensagem: str = ""
 
 
+def _dormir_cooperativo(segundos: float, campanha_id: int) -> bool:
+    """
+    Dorme em chunks de 30s, recarregando o status da campanha em cada chunk.
+    Retorna True se completou, False se o status mudou e o loop deve sair.
+    """
+    fim = time_mod.monotonic() + segundos
+    while True:
+        agora_mono = time_mod.monotonic()
+        if agora_mono >= fim:
+            return True
+        chunk = min(30.0, fim - agora_mono)
+        time_mod.sleep(chunk)
+        c = obter(campanha_id)
+        if c is None or c["status"] != "ativa":
+            return False
+
+
+def _incrementar_enviados(campanha_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE campanhas SET enviados_total = enviados_total + 1 WHERE id = ?",
+            (campanha_id,),
+        )
+
+
+def loop_campanha(campanha_id: int) -> None:
+    """Roda na thread daemon. Sai quando status != 'ativa' ou alvo atingido."""
+    log.info("[campanha %s] thread iniciada", campanha_id)
+    try:
+        c = obter(campanha_id)
+        if c is None:
+            return
+        perfil = mailer.carregar_perfil(c["perfil_id"])
+        if perfil is None:
+            pausar(campanha_id, motivo="Perfil não encontrado")
+            return
+
+        smtp = _SmtpSession(perfil)
+        falhas_transientes_seguidas = 0
+
+        try:
+            while True:
+                estado = montar_estado_campanha(campanha_id)
+                acao = proxima_acao(estado, datetime.now())
+
+                if acao.tipo is AcaoTipo.SAIR:
+                    log.info("[campanha %s] saindo (status=%s)", campanha_id, estado.status)
+                    return
+                if acao.tipo is AcaoTipo.CONCLUIR:
+                    marcar_concluida(campanha_id)
+                    log.info("[campanha %s] concluida", campanha_id)
+                    return
+                if acao.tipo is AcaoTipo.DORMIR_ATE:
+                    smtp.fechar()  # libera conexão durante sleep longo
+                    seg = max(1.0, (acao.dormir_ate - datetime.now()).total_seconds())
+                    log.debug("[campanha %s] dormindo até %s (%.0fs)",
+                              campanha_id, acao.dormir_ate, seg)
+                    if not _dormir_cooperativo(seg, campanha_id):
+                        return
+                    continue
+
+                # AcaoTipo.ENVIAR
+                contato = selecionar_proximo_contato(campanha_id)
+                if contato is None:
+                    log.info("[campanha %s] sem contatos elegíveis — concluindo", campanha_id)
+                    marcar_concluida(campanha_id)
+                    return
+
+                if not mailer.email_valido(contato["email"]):
+                    mailer.registrar_envio(
+                        contato["id"], c["perfil_id"], "erro",
+                        "Email com formato inválido", None, None, campanha_id,
+                    )
+                    mailer.marcar_contato_invalido(contato["id"])
+                    continue
+
+                # Tenta enviar com retry para transientes
+                msg_id = None
+                token = secrets.token_urlsafe(16)
+                tentativas = 0
+                while True:
+                    tentativas += 1
+                    try:
+                        server = smtp.garantir_conectado()
+                        msg_id = mailer.enviar_um_contato(server, perfil, contato, token)
+                        break
+                    except Exception as e:
+                        cls = classificar_erro_smtp(e)
+                        msg_erro = str(e)[:500]
+                        log.warning("[campanha %s] envio falhou (%s): %s",
+                                    campanha_id, cls.value, msg_erro)
+                        if cls is ErroSmtp.FATAL:
+                            pausar(campanha_id, motivo=f"Falha de autenticação: {msg_erro}")
+                            return
+                        if cls is ErroSmtp.POR_CONTATO:
+                            mailer.registrar_envio(
+                                contato["id"], c["perfil_id"], "erro",
+                                msg_erro, None, None, campanha_id,
+                            )
+                            if mailer.eh_bounce_permanente(msg_erro):
+                                mailer.marcar_contato_invalido(contato["id"])
+                            falhas_transientes_seguidas = 0
+                            break
+                        # TRANSIENTE
+                        smtp.fechar()
+                        if tentativas >= 3:
+                            mailer.registrar_envio(
+                                contato["id"], c["perfil_id"], "erro",
+                                f"Transiente (3 tentativas): {msg_erro}",
+                                None, None, campanha_id,
+                            )
+                            falhas_transientes_seguidas += 1
+                            if falhas_transientes_seguidas >= 3:
+                                pausar(campanha_id,
+                                       motivo=f"Rede/SMTP instável: {msg_erro}")
+                                return
+                            break
+                        # backoff: 30s, 2min
+                        backoff = 30.0 if tentativas == 1 else 120.0
+                        if not _dormir_cooperativo(backoff, campanha_id):
+                            return
+                        continue
+
+                if msg_id is not None:
+                    mailer.registrar_envio(
+                        contato["id"], c["perfil_id"], "ok",
+                        None, msg_id, token, campanha_id,
+                    )
+                    _incrementar_enviados(campanha_id)
+                    falhas_transientes_seguidas = 0
+
+                if not _dormir_cooperativo(acao.intervalo_seg or 10.0, campanha_id):
+                    return
+
+        finally:
+            smtp.fechar()
+    except Exception:
+        log.exception("[campanha %s] erro inesperado no loop", campanha_id)
+        pausar(campanha_id, motivo="Erro inesperado no worker — ver logs")
+
+
 def _subir_thread(campanha_id: int) -> None:
-    """
-    Cria daemon thread que executa loop_campanha. Stub na Task 7;
-    implementação real na Task 11.
-    """
-    pass  # substituído na Task 11
+    with _lock:
+        atual = _threads_runtime.get(campanha_id)
+        if atual is not None:
+            return  # já tem thread viva
+        _threads_runtime[campanha_id] = RuntimeEstado(
+            campanha_id=campanha_id,
+            iniciado_em=datetime.now(),
+        )
+
+    def _wrapped():
+        try:
+            loop_campanha(campanha_id)
+        finally:
+            with _lock:
+                _threads_runtime.pop(campanha_id, None)
+
+    t = threading.Thread(target=_wrapped, daemon=True, name=f"campanha-{campanha_id}")
+    t.start()
 
 
 # ---------------------------------------------------------------------------
