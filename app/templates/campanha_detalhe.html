@@ -37,12 +37,5 @@
   </div>
 </header>
 
-<div id="corpo"
-     {% if campanha.status == 'ativa' %}
-       hx-get="/campanhas/{{ campanha.id }}/parcial"
-       hx-trigger="every 5s"
-       hx-swap="outerHTML"
-     {% endif %}>
-  {% include "_campanha_detalhe_corpo.html" %}
-</div>
+{% include "_campanha_detalhe_corpo.html" %}
 {% endblock %}

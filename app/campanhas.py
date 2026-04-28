@@ -12,6 +12,7 @@ import logging
 import re
 import secrets
 import smtplib
+import sqlite3
 import threading
 import time as time_mod  # IMPORTANTE: alias para não colidir com `from datetime import time`
 from dataclasses import dataclass
@@ -482,24 +483,29 @@ def iniciar(campanha_id: int) -> None:
         raise ValueError(f"Campanha {campanha_id} não encontrada")
     if c["status"] not in ("rascunho", "pausada"):
         raise ValueError(f"Não pode iniciar campanha em status {c['status']!r}")
-    # garante unicidade por perfil
-    with get_conn() as conn:
-        outro = conn.execute(
-            "SELECT id FROM campanhas WHERE perfil_id = ? "
-            "AND status IN ('ativa','pausada') AND id != ?",
-            (c["perfil_id"], campanha_id),
-        ).fetchone()
-    if outro:
+
+    try:
+        with get_conn() as conn:
+            outro = conn.execute(
+                "SELECT id FROM campanhas WHERE perfil_id = ? "
+                "AND status IN ('ativa','pausada') AND id != ?",
+                (c["perfil_id"], campanha_id),
+            ).fetchone()
+            if outro:
+                raise ValueError(
+                    f"Perfil já tem campanha ativa/pausada (id {outro['id']})"
+                )
+            conn.execute(
+                "UPDATE campanhas SET status='ativa', pausa_motivo=NULL, "
+                "iniciada_em=COALESCE(iniciada_em, CURRENT_TIMESTAMP) "
+                "WHERE id = ?",
+                (campanha_id,),
+            )
+    except sqlite3.IntegrityError as e:
         raise ValueError(
-            f"Perfil já tem campanha ativa/pausada (id {outro['id']})"
-        )
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE campanhas SET status='ativa', pausa_motivo=NULL, "
-            "iniciada_em=COALESCE(iniciada_em, CURRENT_TIMESTAMP) "
-            "WHERE id = ?",
-            (campanha_id,),
-        )
+            "Perfil já tem campanha ativa/pausada (race detectada pelo índice)"
+        ) from e
+
     _subir_thread(campanha_id)
 
 

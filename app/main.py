@@ -1257,7 +1257,7 @@ def historico(
             "SELECT id, nome FROM campanhas ORDER BY id DESC"
         ).fetchall()]
 
-    filtros = {"perfil_id": perfil_id, "status": status, "desde": desde, "ate": ate}
+    filtros = {"perfil_id": perfil_id, "status": status, "desde": desde, "ate": ate, "campanha_id": campanha_id}
 
     def qs_pag(p: int) -> str:
         return urlencode({**filtros, "pagina": p})
