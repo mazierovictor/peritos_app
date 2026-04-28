@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 
 from .db import get_conn
+from . import mailer
 
 
 class ErroSmtp(enum.Enum):
@@ -433,3 +434,19 @@ def montar_estado_campanha(campanha_id: int) -> EstadoCampanha:
         janela_inicio=_parse_hhmm(c["janela_inicio"]),
         janela_fim=_parse_hhmm(c["janela_fim"]),
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 10 — selecionar_proximo_contato (uso interno do loop)
+# ---------------------------------------------------------------------------
+
+def selecionar_proximo_contato(campanha_id: int) -> dict | None:
+    c = obter(campanha_id)
+    if c is None:
+        return None
+    filtros = {
+        "estado": c["filtro_estado"],
+        "tribunal": c["filtro_tribunal"],
+    }
+    contatos = mailer.selecionar_contatos(filtros, limite=1, perfil_id=c["perfil_id"])
+    return contatos[0] if contatos else None

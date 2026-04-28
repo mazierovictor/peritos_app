@@ -12,6 +12,7 @@ from app.campanhas import (
     iniciar, pausar, retomar, cancelar, marcar_concluida, editar,
 )
 from app.campanhas import enviados_hoje_campanha, enviados_hoje_perfil, montar_estado_campanha
+from app.campanhas import selecionar_proximo_contato
 
 
 def test_parse_dias_semana_basico():
@@ -384,3 +385,45 @@ def test_montar_estado_campanha_combina_tudo(db_temp, perfil_id, monkeypatch):
     assert e.perfil_limite_diario == 250
     assert e.dias_semana == {0,1,2,3,4}
     assert e.janela_inicio == time(9, 0)
+
+
+# ---------------------------------------------------------------------------
+# Task 10 — selecionar_proximo_contato
+# ---------------------------------------------------------------------------
+
+def test_selecionar_proximo_contato_respeita_filtros(db_temp, perfil_id):
+    from app.db import get_conn
+    cid = criar(nome="X", perfil_id=perfil_id,
+                filtros={"estado": "SP", "tribunal": "tjsp"},
+                total_alvo=10, por_dia=5,
+                dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    with get_conn() as conn:
+        conn.execute("INSERT INTO contatos (email, tribunal, estado) "
+                     "VALUES ('a@x.com', 'tjsp', 'SP')")
+        conn.execute("INSERT INTO contatos (email, tribunal, estado) "
+                     "VALUES ('b@x.com', 'tjmg', 'MG')")  # não casa
+        conn.execute("INSERT INTO contatos (email, tribunal, estado, invalido) "
+                     "VALUES ('c@x.com', 'tjsp', 'SP', 1)")  # inválido
+    contato = selecionar_proximo_contato(cid)
+    assert contato["email"] == "a@x.com"
+
+
+def test_selecionar_proximo_contato_pula_ja_enviados(db_temp, perfil_id):
+    from app.db import get_conn
+    cid = criar(nome="X", perfil_id=perfil_id, filtros={},
+                total_alvo=10, por_dia=5,
+                dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    with get_conn() as conn:
+        c1 = _criar_contato(conn, "a@x.com")
+        c2 = _criar_contato(conn, "b@x.com")
+        # c1 já recebeu OK desse perfil — pula
+        _inserir_envio(conn, c1, perfil_id)
+    contato = selecionar_proximo_contato(cid)
+    assert contato["email"] == "b@x.com"
+
+
+def test_selecionar_proximo_sem_contato_retorna_none(db_temp, perfil_id):
+    cid = criar(nome="X", perfil_id=perfil_id, filtros={},
+                total_alvo=10, por_dia=5,
+                dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    assert selecionar_proximo_contato(cid) is None
