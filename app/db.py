@@ -130,6 +130,27 @@ CREATE TABLE IF NOT EXISTS cron_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_cron_runs_ag ON cron_runs(ag_id);
 CREATE INDEX IF NOT EXISTS idx_cron_runs_iniciado ON cron_runs(iniciado_em);
+
+CREATE TABLE IF NOT EXISTS campanhas (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome            TEXT NOT NULL,
+    perfil_id       INTEGER NOT NULL REFERENCES perfis_remetente(id) ON DELETE RESTRICT,
+    filtro_estado   TEXT,
+    filtro_tribunal TEXT,
+    total_alvo      INTEGER NOT NULL,
+    por_dia         INTEGER NOT NULL,
+    dias_semana     TEXT NOT NULL,
+    janela_inicio   TEXT NOT NULL,
+    janela_fim      TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'rascunho',
+    pausa_motivo    TEXT,
+    enviados_total  INTEGER NOT NULL DEFAULT 0,
+    criada_em       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    iniciada_em     TIMESTAMP,
+    concluida_em    TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_campanhas_perfil_unica
+ON campanhas(perfil_id) WHERE status IN ('ativa', 'pausada');
 """
 
 
@@ -198,6 +219,18 @@ def _migrar() -> None:
         """)
         # Marca como 'cliente' qualquer linha que sobrou sem tipo
         conn.execute("UPDATE aberturas SET tipo = 'cliente' WHERE tipo IS NULL")
+
+        # Coluna campanha_id em envios (relê PRAGMA para ser idempotente em reruns)
+        cols_envios_atual = {r["name"] for r in conn.execute("PRAGMA table_info(envios)")}
+        if "campanha_id" not in cols_envios_atual:
+            conn.execute("ALTER TABLE envios ADD COLUMN campanha_id INTEGER")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_envios_campanha "
+            "ON envios(campanha_id)"
+        )
+
+        # Limpa agendamentos legados do tipo campanha (substituídos pela tabela campanhas)
+        conn.execute("DELETE FROM agendamentos WHERE tipo = 'campanha'")
 
         cols_perfis = {r["name"] for r in conn.execute("PRAGMA table_info(perfis_remetente)")}
         novas_perfis = [
