@@ -1181,6 +1181,7 @@ def historico(
     user: dict = Depends(requer_login),
     perfil_id: str = "", status: str = "",
     desde: str = "", ate: str = "", pagina: int = 1,
+    campanha_id: str = "",
 ):
     por_pagina = 100
     pagina = max(1, pagina)
@@ -1207,6 +1208,8 @@ def historico(
         where.append("date(e.enviado_em) >= date(?)"); args.append(desde)
     if ate:
         where.append("date(e.enviado_em) <= date(?)"); args.append(ate)
+    if campanha_id and campanha_id.isdigit():
+        where.append("e.campanha_id = ?"); args.append(int(campanha_id))
     sql_where = " AND ".join(where)
 
     base_from = "FROM envios e JOIN contatos c ON c.id = e.contato_id"
@@ -1250,6 +1253,9 @@ def historico(
             """,
             [*args, por_pagina, (pagina - 1) * por_pagina],
         ).fetchall()
+        campanhas_disponiveis = [dict(r) for r in conn.execute(
+            "SELECT id, nome FROM campanhas ORDER BY id DESC"
+        ).fetchall()]
 
     filtros = {"perfil_id": perfil_id, "status": status, "desde": desde, "ate": ate}
 
@@ -1263,6 +1269,8 @@ def historico(
         "filtros": filtros, "pagina": pagina, "por_pagina": por_pagina,
         "paginas_total": max(1, (total + por_pagina - 1) // por_pagina),
         "qs_pag": qs_pag,
+        "campanhas_disponiveis": campanhas_disponiveis,
+        "filtro_campanha_id": campanha_id,
     })
 
 
