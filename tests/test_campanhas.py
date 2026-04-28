@@ -8,6 +8,9 @@ from app.campanhas import (
     Acao, AcaoTipo, proxima_acao, EstadoCampanha,
 )
 from app.campanhas import criar, listar, obter
+from app.campanhas import (
+    iniciar, pausar, retomar, cancelar, marcar_concluida, editar,
+)
 
 
 def test_parse_dias_semana_basico():
@@ -231,3 +234,82 @@ def test_criar_com_por_dia_maior_que_limite_perfil_levanta(db_temp, perfil_id):
     with pytest.raises(ValueError):
         criar(nome="X", perfil_id=perfil_id, filtros={}, total_alvo=1000, por_dia=300,
               dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+
+
+# ---------------------------------------------------------------------------
+# Task 7 — transições de estado
+# ---------------------------------------------------------------------------
+
+def test_iniciar_de_rascunho_vai_para_ativa(db_temp, perfil_id, monkeypatch):
+    monkeypatch.setattr("app.campanhas._subir_thread", lambda cid: None)
+    cid = criar(nome="X", perfil_id=perfil_id, filtros={}, total_alvo=10, por_dia=5,
+                dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    iniciar(cid)
+    assert obter(cid)["status"] == "ativa"
+
+
+def test_iniciar_quando_outra_ativa_no_perfil_levanta(db_temp, perfil_id, monkeypatch):
+    monkeypatch.setattr("app.campanhas._subir_thread", lambda cid: None)
+    a = criar(nome="A", perfil_id=perfil_id, filtros={}, total_alvo=10, por_dia=5,
+              dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    b = criar(nome="B", perfil_id=perfil_id, filtros={}, total_alvo=10, por_dia=5,
+              dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    iniciar(a)
+    with pytest.raises(ValueError):
+        iniciar(b)
+
+
+def test_pausar_de_ativa_seta_motivo(db_temp, perfil_id, monkeypatch):
+    monkeypatch.setattr("app.campanhas._subir_thread", lambda cid: None)
+    cid = criar(nome="X", perfil_id=perfil_id, filtros={}, total_alvo=10, por_dia=5,
+                dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    iniciar(cid)
+    pausar(cid, motivo="Teste de pausa")
+    c = obter(cid)
+    assert c["status"] == "pausada"
+    assert c["pausa_motivo"] == "Teste de pausa"
+
+
+def test_retomar_de_pausada_volta_para_ativa(db_temp, perfil_id, monkeypatch):
+    monkeypatch.setattr("app.campanhas._subir_thread", lambda cid: None)
+    cid = criar(nome="X", perfil_id=perfil_id, filtros={}, total_alvo=10, por_dia=5,
+                dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    iniciar(cid)
+    pausar(cid, motivo="x")
+    retomar(cid)
+    c = obter(cid)
+    assert c["status"] == "ativa"
+    assert c["pausa_motivo"] is None
+
+
+def test_cancelar_de_qualquer_estado_nao_terminal(db_temp, perfil_id, monkeypatch):
+    monkeypatch.setattr("app.campanhas._subir_thread", lambda cid: None)
+    cid = criar(nome="X", perfil_id=perfil_id, filtros={}, total_alvo=10, por_dia=5,
+                dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    cancelar(cid)
+    assert obter(cid)["status"] == "cancelada"
+
+
+def test_editar_so_em_rascunho(db_temp, perfil_id, monkeypatch):
+    monkeypatch.setattr("app.campanhas._subir_thread", lambda cid: None)
+    cid = criar(nome="X", perfil_id=perfil_id, filtros={}, total_alvo=10, por_dia=5,
+                dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    editar(cid, nome="Y", filtros={}, total_alvo=20, por_dia=10,
+           dias_semana={1, 2}, janela_inicio=time(8,0), janela_fim=time(18,0))
+    assert obter(cid)["nome"] == "Y"
+
+    iniciar(cid)
+    with pytest.raises(ValueError):
+        editar(cid, nome="Z", filtros={}, total_alvo=20, por_dia=10,
+               dias_semana={1}, janela_inicio=time(8,0), janela_fim=time(18,0))
+
+
+def test_marcar_concluida(db_temp, perfil_id, monkeypatch):
+    monkeypatch.setattr("app.campanhas._subir_thread", lambda cid: None)
+    cid = criar(nome="X", perfil_id=perfil_id, filtros={}, total_alvo=10, por_dia=5,
+                dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    iniciar(cid)
+    marcar_concluida(cid)
+    c = obter(cid)
+    assert c["status"] == "concluida"
+    assert c["concluida_em"] is not None

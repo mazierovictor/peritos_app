@@ -10,6 +10,7 @@ from __future__ import annotations
 import enum
 import re
 import smtplib
+import threading
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 
@@ -248,3 +249,137 @@ def listar() -> list[dict]:
     out = [dict(r) for r in rows]
     out.sort(key=lambda c: (_ORDEM_STATUS.get(c["status"], 99), -c["id"]))
     return out
+
+
+# ---------------------------------------------------------------------------
+# Runtime state (in-memory only) + thread management
+# ---------------------------------------------------------------------------
+
+# Estado runtime das threads vivas. Chave = id da campanha.
+_threads_runtime: dict[int, "RuntimeEstado"] = {}
+_lock = threading.Lock()
+
+
+@dataclass
+class RuntimeEstado:
+    """Snapshot pequeno do que a thread está fazendo agora (memória apenas)."""
+    campanha_id: int
+    iniciado_em: datetime
+    ultimo_envio_em: datetime | None = None
+    proximo_envio_em: datetime | None = None
+    mensagem: str = ""
+
+
+def _subir_thread(campanha_id: int) -> None:
+    """
+    Cria daemon thread que executa loop_campanha. Stub na Task 7;
+    implementação real na Task 11.
+    """
+    pass  # substituído na Task 11
+
+
+# ---------------------------------------------------------------------------
+# Transições de estado
+# ---------------------------------------------------------------------------
+
+def iniciar(campanha_id: int) -> None:
+    c = obter(campanha_id)
+    if c is None:
+        raise ValueError(f"Campanha {campanha_id} não encontrada")
+    if c["status"] not in ("rascunho", "pausada"):
+        raise ValueError(f"Não pode iniciar campanha em status {c['status']!r}")
+    # garante unicidade por perfil
+    with get_conn() as conn:
+        outro = conn.execute(
+            "SELECT id FROM campanhas WHERE perfil_id = ? "
+            "AND status IN ('ativa','pausada') AND id != ?",
+            (c["perfil_id"], campanha_id),
+        ).fetchone()
+    if outro:
+        raise ValueError(
+            f"Perfil já tem campanha ativa/pausada (id {outro['id']})"
+        )
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE campanhas SET status='ativa', pausa_motivo=NULL, "
+            "iniciada_em=COALESCE(iniciada_em, CURRENT_TIMESTAMP) "
+            "WHERE id = ?",
+            (campanha_id,),
+        )
+    _subir_thread(campanha_id)
+
+
+def pausar(campanha_id: int, motivo: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE campanhas SET status='pausada', pausa_motivo=? "
+            "WHERE id = ? AND status='ativa'",
+            (motivo, campanha_id),
+        )
+    # a thread, se viva, vai detectar no próximo dormir cooperativo
+
+
+def retomar(campanha_id: int) -> None:
+    c = obter(campanha_id)
+    if c is None or c["status"] != "pausada":
+        raise ValueError("Só pode retomar campanha pausada")
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE campanhas SET status='ativa', pausa_motivo=NULL "
+            "WHERE id = ?", (campanha_id,),
+        )
+    _subir_thread(campanha_id)
+
+
+def cancelar(campanha_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE campanhas SET status='cancelada' "
+            "WHERE id = ? AND status IN ('rascunho','ativa','pausada')",
+            (campanha_id,),
+        )
+
+
+def marcar_concluida(campanha_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE campanhas SET status='concluida', "
+            "concluida_em=CURRENT_TIMESTAMP "
+            "WHERE id = ? AND status='ativa'",
+            (campanha_id,),
+        )
+
+
+def editar(campanha_id: int, *,
+    nome: str, filtros: dict,
+    total_alvo: int, por_dia: int,
+    dias_semana: set[int],
+    janela_inicio: time, janela_fim: time,
+) -> None:
+    c = obter(campanha_id)
+    if c is None:
+        raise ValueError(f"Campanha {campanha_id} não encontrada")
+    if c["status"] != "rascunho":
+        raise ValueError("Só é possível editar campanhas em rascunho")
+    with get_conn() as conn:
+        limite = _carregar_limite_perfil(conn, c["perfil_id"])
+    _validar_payload(
+        total_alvo=total_alvo, por_dia=por_dia,
+        dias_semana=dias_semana,
+        janela_inicio=janela_inicio, janela_fim=janela_fim,
+        perfil_limite_diario=limite,
+    )
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE campanhas SET nome=?, filtro_estado=?, filtro_tribunal=?, "
+            "total_alvo=?, por_dia=?, dias_semana=?, "
+            "janela_inicio=?, janela_fim=? WHERE id = ?",
+            (
+                nome.strip(),
+                filtros.get("estado") or None, filtros.get("tribunal") or None,
+                total_alvo, por_dia,
+                format_dias_semana(dias_semana),
+                _format_hhmm(janela_inicio), _format_hhmm(janela_fim),
+                campanha_id,
+            ),
+        )
