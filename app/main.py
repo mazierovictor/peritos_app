@@ -727,6 +727,29 @@ def campanhas_lista(request: Request, user: dict = Depends(requer_login)):
     })
 
 
+@app.get("/campanhas/contar")
+def campanhas_contar(
+    perfil_id: int,
+    estado: str = "",
+    tribunal: str = "",
+    user: dict = Depends(requer_login),
+):
+    """Conta contatos elegíveis para os filtros + perfil. Usado pelo form para
+    mostrar o limite dinâmico de total_alvo."""
+    with get_conn() as conn:
+        own = conn.execute(
+            "SELECT 1 FROM perfis_remetente WHERE id = ? AND usuario_id = ?",
+            (perfil_id, user["id"]),
+        ).fetchone()
+    if not own:
+        raise HTTPException(403)
+    n = mailer.contar_contatos_elegiveis(
+        {"estado": estado or None, "tribunal": tribunal or None},
+        perfil_id,
+    )
+    return {"disponiveis": n}
+
+
 @app.get("/campanhas/nova", response_class=HTMLResponse)
 def campanhas_nova_form(request: Request, user: dict = Depends(requer_login),
                         erro: str | None = None):

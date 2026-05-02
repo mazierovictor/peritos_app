@@ -25,9 +25,7 @@ def db_temp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     return tmp_path
 
 
-@pytest.fixture
-def perfil_id(db_temp):
-    """Insere um perfil de remetente válido e retorna o id."""
+def _inserir_perfil_basico() -> int:
     from app.db import get_conn
 
     with get_conn() as conn:
@@ -43,3 +41,24 @@ def perfil_id(db_temp):
             " 'enc', 'assunto', 'txt', '<p>html</p>', 250)",
         )
         return cur.lastrowid
+
+
+@pytest.fixture
+def perfil_id(db_temp):
+    """Perfil + pool de contatos suficiente para os testes que criam campanha
+    (a validação de disponibilidade exige total_alvo <= contatos elegíveis)."""
+    from app.db import get_conn
+
+    pid = _inserir_perfil_basico()
+    with get_conn() as conn:
+        conn.executemany(
+            "INSERT INTO contatos (email, estado, tribunal) VALUES (?, ?, ?)",
+            [(f"alvo{i}@ex.com", "SP", "tjsp") for i in range(1100)],
+        )
+    return pid
+
+
+@pytest.fixture
+def perfil_id_sem_contatos(db_temp):
+    """Variante para testes que precisam montar a tabela `contatos` do zero."""
+    return _inserir_perfil_basico()

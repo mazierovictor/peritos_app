@@ -199,6 +199,15 @@ def _carregar_limite_perfil(conn, perfil_id: int) -> int:
     return int(row["limite_diario"])
 
 
+def _validar_disponibilidade(filtros: dict, perfil_id: int, total_alvo: int) -> None:
+    disponiveis = mailer.contar_contatos_elegiveis(filtros, perfil_id)
+    if total_alvo > disponiveis:
+        raise ValueError(
+            f"Total a enviar ({total_alvo}) excede contatos elegíveis "
+            f"({disponiveis}) para os filtros e perfil escolhidos."
+        )
+
+
 def criar(*,
     nome: str,
     perfil_id: int,
@@ -217,6 +226,7 @@ def criar(*,
         janela_inicio=janela_inicio, janela_fim=janela_fim,
         perfil_limite_diario=limite,
     )
+    _validar_disponibilidade(filtros, perfil_id, total_alvo)
     with get_conn() as conn:
         cur = conn.execute(
             "INSERT INTO campanhas "
@@ -569,6 +579,7 @@ def editar(campanha_id: int, *,
         janela_inicio=janela_inicio, janela_fim=janela_fim,
         perfil_limite_diario=limite,
     )
+    _validar_disponibilidade(filtros, c["perfil_id"], total_alvo)
     with get_conn() as conn:
         conn.execute(
             "UPDATE campanhas SET nome=?, filtro_estado=?, filtro_tribunal=?, "

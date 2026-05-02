@@ -238,6 +238,35 @@ def test_criar_com_por_dia_maior_que_limite_perfil_levanta(db_temp, perfil_id):
               dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
 
 
+def test_criar_com_total_alvo_acima_dos_disponiveis_levanta(db_temp, perfil_id_sem_contatos):
+    """Bug do usuário: tribunal com 300 contatos não pode aceitar total_alvo=1000."""
+    from app.db import get_conn
+    with get_conn() as conn:
+        conn.executemany(
+            "INSERT INTO contatos (email, estado, tribunal) VALUES (?, 'MG', 'tjmg')",
+            [(f"a{i}@ex.com",) for i in range(300)],
+        )
+    with pytest.raises(ValueError, match="excede contatos elegíveis"):
+        criar(nome="X", perfil_id=perfil_id_sem_contatos,
+              filtros={"estado": "MG", "tribunal": "tjmg"},
+              total_alvo=1000, por_dia=200,
+              dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+
+
+def test_criar_com_total_alvo_igual_aos_disponiveis_passa(db_temp, perfil_id_sem_contatos):
+    from app.db import get_conn
+    with get_conn() as conn:
+        conn.executemany(
+            "INSERT INTO contatos (email, estado, tribunal) VALUES (?, 'MG', 'tjmg')",
+            [(f"a{i}@ex.com",) for i in range(50)],
+        )
+    cid = criar(nome="X", perfil_id=perfil_id_sem_contatos,
+                filtros={"estado": "MG", "tribunal": "tjmg"},
+                total_alvo=50, por_dia=10,
+                dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    assert cid > 0
+
+
 # ---------------------------------------------------------------------------
 # Task 7 — transições de estado
 # ---------------------------------------------------------------------------
@@ -391,12 +420,9 @@ def test_montar_estado_campanha_combina_tudo(db_temp, perfil_id, monkeypatch):
 # Task 10 — selecionar_proximo_contato
 # ---------------------------------------------------------------------------
 
-def test_selecionar_proximo_contato_respeita_filtros(db_temp, perfil_id):
+def test_selecionar_proximo_contato_respeita_filtros(db_temp, perfil_id_sem_contatos):
     from app.db import get_conn
-    cid = criar(nome="X", perfil_id=perfil_id,
-                filtros={"estado": "SP", "tribunal": "tjsp"},
-                total_alvo=10, por_dia=5,
-                dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    perfil_id = perfil_id_sem_contatos
     with get_conn() as conn:
         conn.execute("INSERT INTO contatos (email, tribunal, estado) "
                      "VALUES ('a@x.com', 'tjsp', 'SP')")
@@ -404,26 +430,40 @@ def test_selecionar_proximo_contato_respeita_filtros(db_temp, perfil_id):
                      "VALUES ('b@x.com', 'tjmg', 'MG')")  # não casa
         conn.execute("INSERT INTO contatos (email, tribunal, estado, invalido) "
                      "VALUES ('c@x.com', 'tjsp', 'SP', 1)")  # inválido
+    cid = criar(nome="X", perfil_id=perfil_id,
+                filtros={"estado": "SP", "tribunal": "tjsp"},
+                total_alvo=1, por_dia=1,
+                dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
     contato = selecionar_proximo_contato(cid)
     assert contato["email"] == "a@x.com"
 
 
-def test_selecionar_proximo_contato_pula_ja_enviados(db_temp, perfil_id):
+def test_selecionar_proximo_contato_pula_ja_enviados(db_temp, perfil_id_sem_contatos):
     from app.db import get_conn
-    cid = criar(nome="X", perfil_id=perfil_id, filtros={},
-                total_alvo=10, por_dia=5,
-                dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    perfil_id = perfil_id_sem_contatos
     with get_conn() as conn:
         c1 = _criar_contato(conn, "a@x.com")
         c2 = _criar_contato(conn, "b@x.com")
         # c1 já recebeu OK desse perfil — pula
         _inserir_envio(conn, c1, perfil_id)
+    cid = criar(nome="X", perfil_id=perfil_id, filtros={},
+                total_alvo=1, por_dia=1,
+                dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
     contato = selecionar_proximo_contato(cid)
     assert contato["email"] == "b@x.com"
 
 
-def test_selecionar_proximo_sem_contato_retorna_none(db_temp, perfil_id):
+def test_selecionar_proximo_sem_contato_retorna_none(db_temp, perfil_id_sem_contatos):
+    """Cenário: campanha foi criada quando havia contato, mas o contato foi
+    invalidado depois (ou já recebeu envio). A função deve retornar None."""
+    from app.db import get_conn
+    perfil_id = perfil_id_sem_contatos
+    with get_conn() as conn:
+        c1 = _criar_contato(conn, "a@x.com")
     cid = criar(nome="X", perfil_id=perfil_id, filtros={},
-                total_alvo=10, por_dia=5,
+                total_alvo=1, por_dia=1,
                 dias_semana={0}, janela_inicio=time(9,0), janela_fim=time(17,0))
+    # invalida depois da criação — a campanha existe, mas não há mais contato elegível
+    with get_conn() as conn:
+        conn.execute("UPDATE contatos SET invalido = 1 WHERE id = ?", (c1,))
     assert selecionar_proximo_contato(cid) is None

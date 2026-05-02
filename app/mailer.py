@@ -111,18 +111,21 @@ def carregar_perfil(perfil_id: int) -> dict | None:
     return dict(row) if row else None
 
 
-def selecionar_contatos(filtros: dict, limite: int, perfil_id: int) -> list[dict]:
-    """Retorna contatos elegíveis: válidos, não enviados ainda por este perfil, conforme filtros."""
+def _where_contatos_elegiveis(filtros: dict) -> tuple[list[str], list]:
     where = ["c.invalido = 0"]
     args: list = []
-
     if filtros.get("estado"):
         where.append("c.estado = ?")
         args.append(filtros["estado"])
     if filtros.get("tribunal"):
         where.append("c.tribunal = ?")
         args.append(filtros["tribunal"])
+    return where, args
 
+
+def selecionar_contatos(filtros: dict, limite: int, perfil_id: int) -> list[dict]:
+    """Retorna contatos elegíveis: válidos, não enviados ainda por este perfil, conforme filtros."""
+    where, args = _where_contatos_elegiveis(filtros)
     sql = f"""
       SELECT c.* FROM contatos c
       WHERE {' AND '.join(where)}
@@ -138,6 +141,24 @@ def selecionar_contatos(filtros: dict, limite: int, perfil_id: int) -> list[dict
     with get_conn() as conn:
         rows = conn.execute(sql, args).fetchall()
     return [dict(r) for r in rows]
+
+
+def contar_contatos_elegiveis(filtros: dict, perfil_id: int) -> int:
+    """Conta contatos elegíveis para uma campanha com os filtros e perfil informados.
+    Mesmo critério de selecionar_contatos: válidos, não enviados ainda por este perfil."""
+    where, args = _where_contatos_elegiveis(filtros)
+    sql = f"""
+      SELECT COUNT(*) AS c FROM contatos c
+      WHERE {' AND '.join(where)}
+        AND NOT EXISTS (
+          SELECT 1 FROM envios e
+          WHERE e.contato_id = c.id AND e.perfil_remetente_id = ? AND e.status = 'ok'
+        )
+    """
+    args.append(perfil_id)
+    with get_conn() as conn:
+        row = conn.execute(sql, args).fetchone()
+    return int(row["c"])
 
 
 def _injetar_pixel(corpo_html: str, token: str) -> str:
