@@ -21,7 +21,7 @@
              placeholder="Ex.: TJSP janeiro">
     </label>
     <label>Perfil de remetente
-      <select name="perfil_id" required {% if campanha %}disabled{% endif %}>
+      <select name="perfil_id" id="campo-perfil" required {% if campanha %}disabled{% endif %}>
         {% for p in perfis %}
         <option value="{{ p.id }}"
           {% if p.disabled %}disabled{% endif %}
@@ -31,7 +31,7 @@
         </option>
         {% endfor %}
       </select>
-      {% if campanha %}<input type="hidden" name="perfil_id" value="{{ campanha.perfil_id }}">{% endif %}
+      {% if campanha %}<input type="hidden" name="perfil_id" id="campo-perfil-hidden" value="{{ campanha.perfil_id }}">{% endif %}
     </label>
   </fieldset>
 
@@ -39,7 +39,7 @@
     <legend>Filtros de contato</legend>
     <div class="grade-2">
       <label>UF
-        <select name="estado">
+        <select name="estado" id="campo-estado">
           <option value="">— todos —</option>
           {% for uf in ufs %}
             <option value="{{ uf }}" {% if campanha and campanha.filtro_estado == uf %}selected{% endif %}>{{ uf }}</option>
@@ -47,7 +47,7 @@
         </select>
       </label>
       <label>Tribunal
-        <select name="tribunal">
+        <select name="tribunal" id="campo-tribunal">
           <option value="">— todos —</option>
           {% for tj in tribunais %}
             <option value="{{ tj }}" {% if campanha and campanha.filtro_tribunal == tj %}selected{% endif %}>{{ tj|upper }}</option>
@@ -61,8 +61,9 @@
     <legend>Meta e ritmo</legend>
     <div class="grade-2">
       <label>Total a enviar
-        <input type="number" name="total_alvo" min="1" required
+        <input type="number" name="total_alvo" id="campo-total-alvo" min="1" required
                value="{{ campanha.total_alvo if campanha else 1000 }}">
+        <small class="cinza" id="campo-disponiveis">Calculando contatos disponíveis…</small>
       </label>
       <label>Por dia (máx)
         <input type="number" name="por_dia" min="1" required
@@ -100,4 +101,67 @@
 
   <button type="submit" class="btn-primario">{{ "Salvar" if campanha else "Criar como rascunho" }}</button>
 </form>
+
+<script>
+(function () {
+  const campoPerfil = document.getElementById("campo-perfil");
+  const campoPerfilHidden = document.getElementById("campo-perfil-hidden");
+  const campoEstado = document.getElementById("campo-estado");
+  const campoTribunal = document.getElementById("campo-tribunal");
+  const campoTotal = document.getElementById("campo-total-alvo");
+  const aviso = document.getElementById("campo-disponiveis");
+
+  function perfilId() {
+    if (campoPerfilHidden) return campoPerfilHidden.value;
+    return campoPerfil ? campoPerfil.value : "";
+  }
+
+  let pedidoEmCurso = 0;
+
+  async function atualizar() {
+    const pid = perfilId();
+    if (!pid) {
+      aviso.textContent = "Selecione um perfil para ver os contatos disponíveis.";
+      campoTotal.removeAttribute("max");
+      return;
+    }
+    const params = new URLSearchParams({
+      perfil_id: pid,
+      estado: campoEstado.value,
+      tribunal: campoTribunal.value,
+    });
+    const meuPedido = ++pedidoEmCurso;
+    aviso.textContent = "Calculando contatos disponíveis…";
+    try {
+      const resp = await fetch("/campanhas/contar?" + params.toString(), {
+        credentials: "same-origin",
+      });
+      if (meuPedido !== pedidoEmCurso) return; // chegada fora de ordem
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const data = await resp.json();
+      const n = data.disponiveis;
+      campoTotal.max = n;
+      const atual = parseInt(campoTotal.value || "0", 10);
+      if (n === 0) {
+        aviso.innerHTML = '<span style="color:#b00020">Nenhum contato elegível para esses filtros (já enviados ou inválidos).</span>';
+      } else if (atual > n) {
+        aviso.innerHTML = `Disponíveis: <strong>${n}</strong>. O total digitado (${atual}) excede esse limite.`;
+        aviso.style.color = "#b00020";
+      } else {
+        aviso.innerHTML = `Contatos elegíveis: <strong>${n}</strong> (válidos e ainda não enviados por este perfil).`;
+        aviso.style.color = "";
+      }
+    } catch (e) {
+      if (meuPedido !== pedidoEmCurso) return;
+      aviso.textContent = "Falha ao calcular disponíveis: " + e.message;
+    }
+  }
+
+  if (campoPerfil && !campoPerfilHidden) campoPerfil.addEventListener("change", atualizar);
+  campoEstado.addEventListener("change", atualizar);
+  campoTribunal.addEventListener("change", atualizar);
+  campoTotal.addEventListener("input", atualizar);
+  atualizar();
+})();
+</script>
 {% endblock %}
