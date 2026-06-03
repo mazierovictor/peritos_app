@@ -10,7 +10,7 @@ import smtplib
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.utils import formatdate, make_msgid
+from email.utils import formataddr, formatdate, make_msgid
 from pathlib import Path
 from string import Template
 
@@ -179,7 +179,11 @@ def _injetar_pixel(corpo_html: str, token: str) -> str:
 def enviar_um_contato(server: smtplib.SMTP, perfil: dict, contato: dict, tracking_token: str) -> str:
     """Envia o e-mail e retorna o Message-ID gerado, para correlação com bounces."""
     msg = MIMEMultipart("mixed")
-    sender = f"{perfil['nome']} <{perfil['email_remetente']}>"
+    # formataddr codifica apenas o display name em RFC 2047 e mantém o endereço
+    # em texto plano. Usar uma f-string crua fazia o nome acentuado ("Perícias")
+    # transformar o cabeçalho inteiro — incluindo <email> — num único
+    # encoded-word, e o Gmail rejeitava com "missing a valid address in From:".
+    sender = formataddr((perfil["nome"], perfil["email_remetente"]))
     remetente_email = perfil["email_remetente"]
 
     message_id = make_msgid(domain=remetente_email.split("@")[-1])
