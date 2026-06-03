@@ -266,7 +266,7 @@ def fetch_unit_detail(
             resp = session.get(url, headers=HEADERS, timeout=30)
             resp.raise_for_status()
             break
-        except requests.RequestException as exc:
+        except requests.RequestsError as exc:
             if attempt < 2:
                 log.warning("    Tentativa %d/3 falhou para %s: %s. Aguardando 10s…", attempt + 1, slug, exc)
                 time.sleep(10)
