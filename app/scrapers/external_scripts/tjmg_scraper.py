@@ -73,13 +73,46 @@ def normalize_text(text: str) -> str:
     text = text.encode('ascii', 'ignore').decode('utf-8')
     return text.lower()
 
+
+# ── Política de filtragem unificada (igual em todos os scrapers) ───────────
+# Mantém TODA vara/juizado/órgão judicial — inclusive varas genéricas numeradas
+# ("2ª Vara") — e exclui APENAS o que for exclusivamente criminal/penal ou de
+# infância e juventude. Em MG quase toda comarca do interior tem varas
+# CUMULATIVAS (ex.: "1ª Vara Cível, Criminal e da Infância e da Juventude");
+# por isso só se exclui quando NÃO há nenhuma competência cível/fiscal/etc.
+_EXC_CRIMINAL = (
+    "criminal", "criminais", "crime", "penal", "penais", "penas",
+    "execucao penal", "execucoes penais", "socioeducativ", "socieducativ",
+    "do juri", "de juri", "juiz de garantias", "juizo de garantias",
+)
+_EXC_INFANCIA = ("infancia", "juventude")
+_CIVEL_OVERRIDE = (
+    "civel", "civil", "fazenda", "fiscal", "fiscais", "familia", "sucessoes", "orfaos",
+    "empresarial", "unica", "unico", "jurisdicional", "precatoria", "divida",
+    "falencia", "recupera", "acidente",
+)
+
+
+def _excluir_orgao(nome_norm: str) -> bool:
+    """True se a unidade for exclusivamente criminal/penal ou de infância/juventude.
+    Recebe o nome JÁ normalizado (minúsculo, sem acento)."""
+    suspeito = (any(t in nome_norm for t in _EXC_CRIMINAL)
+                or any(t in nome_norm for t in _EXC_INFANCIA))
+    if not suspeito:
+        return False
+    return not any(t in nome_norm for t in _CIVEL_OVERRIDE)
+
+
 def is_organ_allowed(orgao_name: str) -> bool:
-    """Verifica se o nome do órgão contém alguma das palavras-chave permitidas."""
-    norm_name = normalize_text(orgao_name)
-    for keyword in ALLOWED_ORGANS:
-        if keyword in norm_name:
-            return True
-    return False
+    """Mantém qualquer vara/juizado/unidade jurisdicional (genérica inclusive) e
+    os órgãos de apoio configurados em ALLOWED_ORGANS; descarta criminal/infância
+    puros."""
+    norm_name = normalize_text(orgao_name).strip()
+    if _excluir_orgao(norm_name):
+        return False
+    if "vara" in norm_name or "juizado" in norm_name or "jurisdicional" in norm_name:
+        return True
+    return any(keyword in norm_name for keyword in ALLOWED_ORGANS)
 
 # ──────────────────────────────────────────────
 # 1. Buscar lista de cidades do formulário

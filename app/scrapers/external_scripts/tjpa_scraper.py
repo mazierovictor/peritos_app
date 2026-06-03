@@ -5,9 +5,42 @@ import re
 import os
 import time
 import logging
+import unicodedata
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+def _norm(text: str) -> str:
+    """Minúsculas, sem acento."""
+    text = unicodedata.normalize("NFD", text or "")
+    return text.encode("ascii", "ignore").decode("ascii").lower()
+
+
+# ── Política de filtragem unificada (igual em todos os scrapers) ───────────
+# Mantém TODA vara/juizado/órgão judicial — inclusive varas genéricas numeradas
+# ("2ª Vara") — e exclui APENAS o que for exclusivamente criminal/penal ou de
+# infância e juventude. Cumulativas com competência cível/fiscal são MANTIDAS.
+_EXC_CRIMINAL = (
+    "criminal", "criminais", "crime", "penal", "penais", "penas",
+    "execucao penal", "execucoes penais", "socioeducativ", "socieducativ",
+    "do juri", "de juri", "juiz de garantias", "juizo de garantias",
+)
+_EXC_INFANCIA = ("infancia", "juventude")
+_CIVEL_OVERRIDE = (
+    "civel", "civil", "fazenda", "fiscal", "fiscais", "familia", "sucessoes", "orfaos",
+    "empresarial", "unica", "unico", "jurisdicional", "precatoria", "divida",
+    "falencia", "recupera", "acidente",
+)
+
+
+def _excluir_orgao(nome_norm: str) -> bool:
+    """True se a unidade for exclusivamente criminal/penal ou de infância/juventude."""
+    suspeito = (any(t in nome_norm for t in _EXC_CRIMINAL)
+                or any(t in nome_norm for t in _EXC_INFANCIA))
+    if not suspeito:
+        return False
+    return not any(t in nome_norm for t in _CIVEL_OVERRIDE)
 
 def fetch_data():
     url = "https://centralservicos.tjpa.jus.br/bv/todos.php"
@@ -25,19 +58,13 @@ def fetch_data():
 
 def is_valid_organ(organ_name):
     """
-    Ignora tudo o que for relacionado a varas criminais, 
-    exceto se for vara cível e criminal.
+    Mantém todo órgão judicial (vara genérica inclusive) e descarta apenas o que
+    for exclusivamente criminal/penal ou de infância e juventude. Unidades
+    cumulativas que também tenham competência cível/fiscal são mantidas.
     """
-    name_lower = organ_name.lower()
-    is_criminal = "criminal" in name_lower or "criminais" in name_lower or "crimes" in name_lower
-    is_civel = "cível" in name_lower or "civel" in name_lower
-    
-    if is_criminal:
-        if is_civel:
-            return True  # Cível e Criminal
-        return False     # Apenas Criminal
-    
-    return True # Other organs
+    if not organ_name:
+        return False
+    return not _excluir_orgao(_norm(organ_name))
 
 def process_html(html_content):
     soup = BeautifulSoup(html_content, 'html.parser')

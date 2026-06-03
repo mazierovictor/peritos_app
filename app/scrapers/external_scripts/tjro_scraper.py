@@ -77,6 +77,38 @@ def extract_email_from_text(text: str) -> str:
     return m.group(0).lower().strip() if m else ""
 
 
+def _norm(text: str) -> str:
+    """Minúsculas, sem acento."""
+    text = unicodedata.normalize("NFD", text or "")
+    return text.encode("ascii", "ignore").decode("ascii").lower()
+
+
+# ── Política de filtragem unificada (igual em todos os scrapers) ───────────
+# Mantém TODA vara/juizado/órgão judicial — inclusive varas genéricas numeradas
+# ("2ª Vara") — e exclui APENAS o que for exclusivamente criminal/penal ou de
+# infância e juventude. Cumulativas com competência cível/fiscal são MANTIDAS.
+_EXC_CRIMINAL = (
+    "criminal", "criminais", "crime", "penal", "penais", "penas",
+    "execucao penal", "execucoes penais", "socioeducativ", "socieducativ",
+    "do juri", "de juri", "juiz de garantias", "juizo de garantias",
+)
+_EXC_INFANCIA = ("infancia", "juventude")
+_CIVEL_OVERRIDE = (
+    "civel", "civil", "fazenda", "fiscal", "fiscais", "familia", "sucessoes", "orfaos",
+    "empresarial", "unica", "unico", "jurisdicional", "precatoria", "divida",
+    "falencia", "recupera", "acidente",
+)
+
+
+def _excluir_orgao(nome_norm: str) -> bool:
+    """True se a unidade for exclusivamente criminal/penal ou de infância/juventude."""
+    suspeito = (any(t in nome_norm for t in _EXC_CRIMINAL)
+                or any(t in nome_norm for t in _EXC_INFANCIA))
+    if not suspeito:
+        return False
+    return not any(t in nome_norm for t in _CIVEL_OVERRIDE)
+
+
 # ──────────────────────────────────────────────
 # 1. Driver
 # ──────────────────────────────────────────────
@@ -248,6 +280,10 @@ def parse_results_html(html: str, city_label: str) -> list[dict]:
                     email = candidate
 
         if not orgao:
+            continue
+
+        # Descarta criminal/penal/infância puros (mantém cumulativas cíveis)
+        if _excluir_orgao(_norm(orgao)):
             continue
 
         # Chave de deduplicação

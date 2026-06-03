@@ -107,21 +107,34 @@ COMARCA_INCLUDE = [
     "gabinete",
 ]
 
-# Sub-seções a ignorar (varas não-cíveis)
-COMARCA_EXCLUDE = [
-    "criminal",
-    "criminais",
-    "execucoes penais",
-    "execucao penal",
-    "juizado especial criminal",
-    "infancia",
-    "família",
-    "familia",
-    "registros publicos",
-    "orfaos",
-    "tutela",
-    "violencia domestica",
-]
+# ── Política de filtragem unificada (igual em todos os scrapers) ───────────
+# Mantém TODA vara/juizado/órgão judicial — inclusive varas genéricas numeradas
+# ("2ª Vara"), comuns em comarcas pequenas/cumulativas onde o perito atua — e
+# exclui APENAS o que for exclusivamente criminal/penal ou de infância e
+# juventude. Unidades cumulativas que também têm competência cível/fiscal/etc.
+# (ex.: "1ª Vara Cível, Criminal e da Infância e da Juventude") são MANTIDAS.
+_EXC_CRIMINAL = (
+    "criminal", "criminais", "crime", "penal", "penais", "penas",
+    "execucao penal", "execucoes penais", "socioeducativ", "socieducativ",
+    "do juri", "de juri", "juiz de garantias", "juizo de garantias",
+)
+_EXC_INFANCIA = ("infancia", "juventude")
+_CIVEL_OVERRIDE = (
+    "civel", "civil", "fazenda", "fiscal", "fiscais", "familia", "sucessoes", "orfaos",
+    "empresarial", "unica", "unico", "jurisdicional", "precatoria", "divida",
+    "falencia", "recupera", "acidente",
+)
+
+
+def _excluir_orgao(nome_norm: str) -> bool:
+    """True se a unidade for exclusivamente criminal/penal ou de infância/juventude.
+    Recebe o nome JÁ normalizado (minúsculo, sem acento)."""
+    suspeito = (any(t in nome_norm for t in _EXC_CRIMINAL)
+                or any(t in nome_norm for t in _EXC_INFANCIA))
+    if not suspeito:
+        return False
+    # cumulativa com competência cível/fiscal/etc. → mantém
+    return not any(t in nome_norm for t in _CIVEL_OVERRIDE)
 
 
 # ──────────────────────────────────────────────
@@ -151,9 +164,8 @@ def is_nucleo(title: str) -> bool:
 def include_comarca_section(title: str) -> bool:
     """Retorna True se a sub-seção da Comarca deve ser incluída."""
     n = norm(title)
-    for ex in COMARCA_EXCLUDE:
-        if ex in n:
-            return False
+    if _excluir_orgao(n):
+        return False
     for inc in COMARCA_INCLUDE:
         if inc in n:
             return True
@@ -161,16 +173,13 @@ def include_comarca_section(title: str) -> bool:
 
 
 def is_vara_relevante(title: str) -> bool:
-    """Retorna True se é uma Vara/Juizado relevante (inclui tudo abaixo via force_include)."""
+    """Retorna True se é uma Vara/Juizado relevante (inclui tudo abaixo via force_include).
+
+    Qualquer vara/juizado/unidade jurisdicional conta — inclusive as genéricas
+    numeradas ("2ª Vara") — desde que não seja exclusivamente criminal/infância
+    (a exclusão é feita antes, via _excluir_orgao)."""
     n = norm(title)
-    return (
-        "vara civel" in n
-        or "varas civeis" in n
-        or "vara unica" in n
-        or "vara especializada" in n
-        or "juizado especial civel" in n
-        or "juizado especial da fazenda" in n
-    )
+    return ("vara" in n or "juizado" in n or "jurisdicional" in n)
 
 
 # ──────────────────────────────────────────────
@@ -474,9 +483,8 @@ def process_comarca_item(item_tag) -> list:
             return
 
         # ── Seção de nível 1 (filhos diretos da Comarca) ─────────────────────
-        # Checa exclusão primeiro
-        is_excl = any(ex in n_title for ex in COMARCA_EXCLUDE)
-        if is_excl:
+        # Checa exclusão primeiro (criminal/penal/infância puros)
+        if _excluir_orgao(n_title):
             return  # ignora esta seção e todos os filhos
 
         vara_rel = is_vara_relevante(title)

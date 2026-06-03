@@ -29,17 +29,34 @@ from openpyxl.styles import Font, PatternFill, Alignment
 BASE_API = "https://www3.tjrj.jus.br/consultasportal/api/v1/telefonesEnderecos/serventias1Inst"
 OUTPUT_FILE = "tjrj_guia_judiciario.xlsx"
 
-# Atribuições a buscar (label → código)
+# Atribuições a buscar (label → código). Códigos confirmados via endpoint
+# `cboAtribuicao` da própria API (44 atribuições no total). Aqui ficam TODAS as
+# atribuições cíveis/judiciais — exclui-se apenas o que é exclusivamente
+# criminal/penal/infância (CRIMINAL, EXECUCOES PENAIS, CRIMES C/ CRIANÇA,
+# INFANCIA E JUVENTUDE, MEDIDAS SOCIOEDUCATIVAS, JUIZADO CRIMINAL, JURI, JUIZO
+# DE GARANTIAS) e os cartórios extrajudiciais (NOTAS, REGISTROS, PROTESTO).
+# A versão anterior listava só 9 e deixava passar Família, Órfãos/Sucessões,
+# Acidentes do Trabalho, Interdições/Tutelas — áreas centrais de perícia.
 ATRIBUICOES = [
-    ("CIVEL",                             18),
-    ("CIVEL ESPECIALIZADA (PESSOAS IDOSAS)", 7620),
-    ("DIVIDA ATIVA",                      41),
-    ("EMPRESARIAL",                       14),
-    ("FAZENDA PUBLICA",                   36),
-    ("FORUM",                             51),
-    ("JUIZADO ESPECIAL CIVEL",            56),
-    ("JUIZADO ESPECIAL DE FAZENDA PUBLICA", 64),
-    ("NUCLEO DE JUSTICA 4.0",             101),
+    ("CIVEL",                                 18),
+    ("CIVEL ESPECIALIZADA (PESSOAS IDOSAS)",  7620),
+    ("FAMILIA",                               44),
+    ("ORFAOS, SUCESSOES e PROVEDORIA",        38),
+    ("REG. INTERDICOES E TUTELAS",            45),
+    ("ACIDENTES DO TRABALHO",                 55),
+    ("DIVIDA ATIVA",                          41),
+    ("EMPRESARIAL",                           14),
+    ("FAZENDA PUBLICA",                       36),
+    ("VIOLENCIA DOMESTICA E FAMILIAR",        60),
+    ("FORUM",                                 51),
+    ("JUIZADO ESPECIAL CIVEL",                56),
+    ("JUIZADO ESPECIAL DE FAZENDA PUBLICA",   64),
+    ("JUIZADO ESPECIAL DO TORCEDOR",          91),
+    ("JUIZADO INFORMAL DE CONCILIACAO",       58),
+    ("CENTRO JUDICIARIO DE SOLUCAO CONFLITOS", 94),
+    ("TURMA RECURSAL",                        67),
+    ("NUCLEO DE JUSTICA 4.0",                 101),
+    ("OUTRAS",                                100),
 ]
 
 DELAY_BETWEEN_REQUESTS = 2  # segundos entre cada requisição à API

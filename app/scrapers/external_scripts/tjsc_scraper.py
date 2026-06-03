@@ -73,6 +73,13 @@ try:
 except Exception:
     pass
 
+# Garante a cobertura de varas genéricas ("2ª Vara") e ofícios judiciais mesmo
+# que a config da UI seja restrita. A busca ampla retorna todas as unidades;
+# is_organ_allowed descarta criminal/infância depois.
+for _amplo in ("Vara", "Oficio", "Juizado"):
+    if _amplo.lower() not in [s.lower() for s in SEARCH_TERMS]:
+        SEARCH_TERMS.append(_amplo)
+
 # Palavras-chave para filtrar órgãos relevantes (minúsculo, sem acento)
 # Correspondentes aos 5 termos de busca no TJSC
 ALLOWED_ORGANS_KEYWORDS = [
@@ -84,6 +91,7 @@ ALLOWED_ORGANS_KEYWORDS = [
     "bancaria",
     "vara",        # qualquer vara
     "juizado",     # Juizado Especial
+    "oficio",      # Ofício Judicial (comarcas pequenas)
     "forum",
     "foro",
 ]
@@ -113,9 +121,37 @@ def _normalize(text: str) -> str:
     return text.lower()
 
 
+# ── Política de filtragem unificada (igual em todos os scrapers) ───────────
+# Mantém TODA vara/juizado/ofício/órgão judicial — inclusive varas genéricas
+# numeradas — e exclui APENAS o que for exclusivamente criminal/penal ou de
+# infância e juventude. Cumulativas com competência cível/fiscal são MANTIDAS.
+_EXC_CRIMINAL = (
+    "criminal", "criminais", "crime", "penal", "penais", "penas",
+    "execucao penal", "execucoes penais", "socioeducativ", "socieducativ",
+    "do juri", "de juri", "juiz de garantias", "juizo de garantias",
+)
+_EXC_INFANCIA = ("infancia", "juventude")
+_CIVEL_OVERRIDE = (
+    "civel", "civil", "fazenda", "fiscal", "fiscais", "familia", "sucessoes", "orfaos",
+    "empresarial", "unica", "unico", "jurisdicional", "precatoria", "divida",
+    "falencia", "recupera", "acidente",
+)
+
+
+def _excluir_orgao(nome_norm: str) -> bool:
+    """True se a unidade for exclusivamente criminal/penal ou de infância/juventude."""
+    suspeito = (any(t in nome_norm for t in _EXC_CRIMINAL)
+                or any(t in nome_norm for t in _EXC_INFANCIA))
+    if not suspeito:
+        return False
+    return not any(t in nome_norm for t in _CIVEL_OVERRIDE)
+
+
 def is_organ_allowed(name: str) -> bool:
-    """Retorna True se o nome do órgão contiver alguma palavra-chave permitida."""
+    """Mantém varas/juizados/ofícios (genéricos inclusive); descarta criminal/infância puros."""
     norm = _normalize(name)
+    if _excluir_orgao(norm):
+        return False
     return any(kw in norm for kw in ALLOWED_ORGANS_KEYWORDS)
 
 

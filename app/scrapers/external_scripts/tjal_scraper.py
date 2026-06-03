@@ -2,9 +2,42 @@ import requests
 import pandas as pd
 import logging
 import os
+import unicodedata
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+def _norm(text: str) -> str:
+    """Minúsculas, sem acento."""
+    text = unicodedata.normalize("NFD", text or "")
+    return text.encode("ascii", "ignore").decode("ascii").lower()
+
+
+# ── Política de filtragem unificada (igual em todos os scrapers) ───────────
+# Mantém TODA vara/juizado/órgão judicial — inclusive varas genéricas numeradas
+# ("2ª Vara") — e exclui APENAS o que for exclusivamente criminal/penal ou de
+# infância e juventude. Cumulativas com competência cível/fiscal são MANTIDAS.
+_EXC_CRIMINAL = (
+    "criminal", "criminais", "crime", "penal", "penais", "penas",
+    "execucao penal", "execucoes penais", "socioeducativ", "socieducativ",
+    "do juri", "de juri", "juiz de garantias", "juizo de garantias",
+)
+_EXC_INFANCIA = ("infancia", "juventude")
+_CIVEL_OVERRIDE = (
+    "civel", "civil", "fazenda", "fiscal", "fiscais", "familia", "sucessoes", "orfaos",
+    "empresarial", "unica", "unico", "jurisdicional", "precatoria", "divida",
+    "falencia", "recupera", "acidente",
+)
+
+
+def _excluir_orgao(nome_norm: str) -> bool:
+    """True se a unidade for exclusivamente criminal/penal ou de infância/juventude."""
+    suspeito = (any(t in nome_norm for t in _EXC_CRIMINAL)
+                or any(t in nome_norm for t in _EXC_INFANCIA))
+    if not suspeito:
+        return False
+    return not any(t in nome_norm for t in _CIVEL_OVERRIDE)
 
 def fetch_data():
     """
@@ -25,42 +58,34 @@ def fetch_data():
 
 def is_valid_organ(organ_name):
     """
-    Ignores purely criminal courts, administrative units, and keeps only specific judicial units.
+    Mantém varas/juizados/gabinetes/câmaras cíveis/ofícios (genéricos inclusive),
+    descarta criminal/penal/infância puros (mantendo cumulativas com competência
+    cível/fiscal) e os setores administrativos/não-judiciais sem valor pericial.
     """
     if not organ_name:
         return False
-        
-    name_lower = organ_name.lower()
-    
-    # 1. Filter out purely criminal
-    is_criminal = "criminal" in name_lower or "criminais" in name_lower or "crimes" in name_lower
-    is_civel = "cível" in name_lower or "civel" in name_lower or "civil" in name_lower
-    
-    if is_criminal and not is_civel:
-        return False     # Apenas Criminal
-        
-    # 2. Blocklist of administrative and non-judicial departments
-    exclusions = [
-        "central de mandados", "central de penas", "centro judiciário", "centro judiciario",
-        "centro de custódia", "centro de custodia", "cjus", "cejusc", "comissões", 
-        "comissoes", "comissão", "comissao", "comitê", "comite", "departamento", 
-        "departamentos", "direção", "direcao", "diretoria", "coordenação", "coordenadoria",
-        "administração", "administracao", "almoxarifado", "arquivo", "assessoria",
-        "corregedoria", "turma recursal", "ouvidoria", "presidência", "presidencia",
-        "secretaria-geral", "procuradoria", "plantão", "turma de uniformização"
-    ]
-    for exc in exclusions:
-        if exc in name_lower:
-            return False
 
-    # 3. Allowlist to strictly keep the requested types
-    allowlist = ["vara", "gabinete", "única", "unica", "juizado", "câmara cível", "camara civel"]
-    has_allowed = any(allowed in name_lower for allowed in allowlist)
-    
-    if not has_allowed:
+    n = _norm(organ_name)
+
+    # 1. Criminal/penal/infância puros
+    if _excluir_orgao(n):
         return False
-        
-    return True
+
+    # 2. Setores administrativos e não-judiciais (sem acento)
+    exclusions = [
+        "central de mandados", "central de penas", "centro judiciario",
+        "centro de custodia", "cjus", "cejusc", "comiss", "comite",
+        "departamento", "direcao", "diretoria", "coordenac", "administracao",
+        "almoxarifado", "arquivo", "assessoria", "corregedoria",
+        "turma recursal", "ouvidoria", "presidencia", "secretaria-geral",
+        "procuradoria", "plantao", "turma de uniformizacao",
+    ]
+    if any(exc in n for exc in exclusions):
+        return False
+
+    # 3. Allowlist: tipos de unidade judicial relevantes
+    allowlist = ["vara", "gabinete", "unica", "juizado", "camara civel", "oficio"]
+    return any(a in n for a in allowlist)
 
 def process_data(json_data):
     """

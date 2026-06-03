@@ -102,9 +102,43 @@ def _normalize(text: str) -> str:
     return text.lower()
 
 
+# ── Política de filtragem unificada (igual em todos os scrapers) ───────────
+# Mantém TODA vara/juizado/órgão judicial — inclusive varas genéricas numeradas
+# ("2ª Vara") — e exclui APENAS o que for exclusivamente criminal/penal ou de
+# infância e juventude. Unidades cumulativas com competência cível/fiscal/etc.
+# (ex.: "Vara Cível e Criminal") são MANTIDAS.
+_EXC_CRIMINAL = (
+    "criminal", "criminais", "crime", "penal", "penais", "penas",
+    "execucao penal", "execucoes penais", "socioeducativ", "socieducativ",
+    "do juri", "de juri", "juiz de garantias", "juizo de garantias",
+)
+_EXC_INFANCIA = ("infancia", "juventude")
+_CIVEL_OVERRIDE = (
+    "civel", "civil", "fazenda", "fiscal", "fiscais", "familia", "sucessoes", "orfaos",
+    "empresarial", "unica", "unico", "jurisdicional", "precatoria", "divida",
+    "falencia", "recupera", "acidente",
+)
+
+
+def _excluir_orgao(nome_norm: str) -> bool:
+    """True se a unidade for exclusivamente criminal/penal ou de infância/juventude.
+    Recebe o nome JÁ normalizado (minúsculo, sem acento)."""
+    suspeito = (any(t in nome_norm for t in _EXC_CRIMINAL)
+                or any(t in nome_norm for t in _EXC_INFANCIA))
+    if not suspeito:
+        return False
+    return not any(t in nome_norm for t in _CIVEL_OVERRIDE)
+
+
 def is_organ_allowed(name: str) -> bool:
-    """Retorna True se o nome do órgão corresponde a alguma palavra-chave permitida."""
-    norm = _normalize(name)
+    """Mantém qualquer vara/juizado/unidade jurisdicional (genérica inclusive) e
+    os órgãos de apoio configurados em ALLOWED_ORGANS; descarta criminal/infância
+    puros."""
+    norm = _normalize(name).strip()
+    if _excluir_orgao(norm):
+        return False
+    if "vara" in norm or "juizado" in norm or "jurisdicional" in norm:
+        return True
     return any(kw in norm for kw in ALLOWED_ORGANS)
 
 
