@@ -19,11 +19,17 @@ Estratégia:
   - O site é uma aplicação Next.js que expõe endpoints JSON internos
     no padrão /_next/data/{buildId}/...
   - O buildId é extraído dinamicamente da página inicial
-  - Não é necessário Selenium (sem CAPTCHA / anti-bot neste site)
+  - O site fica atrás do Akamai (WAF/Bot Manager), que responde HTTP 403
+    "Access Denied" para qualquer cliente cujo fingerprint TLS/HTTP não seja
+    de um navegador real (requests e curl puros são barrados). Por isso
+    usamos curl_cffi com impersonate="chrome", que replica o handshake
+    TLS + HTTP/2 do Chrome. Não é preciso navegador completo: aqui a Akamai
+    valida só o fingerprint — não exige o cookie de sensor data (_abck)
+    gerado por JS.
   - Dados salvos incrementalmente, com detecção de alterações
 
 Dependências:
-    pip install requests openpyxl beautifulsoup4
+    pip install curl_cffi openpyxl beautifulsoup4
 """
 
 import os
@@ -32,7 +38,7 @@ import time
 import logging
 import unicodedata
 
-import requests
+from curl_cffi import requests
 from bs4 import BeautifulSoup
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment
@@ -64,45 +70,20 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/131.0.0.0 Safari/537.36"
-)
-_ACCEPT_LANG = "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
-
+# Os headers de navegador (User-Agent, sec-ch-ua, Accept-Language, Accept-Encoding,
+# Sec-Fetch-*) são providos automaticamente pelo impersonate="chrome" do curl_cffi
+# e ficam coerentes com o fingerprint TLS. Aqui mantemos só os headers específicos
+# da aplicação Next.js — passá-los manualmente sobrescreve os defaults do impersonate.
 HEADERS = {
-    "User-Agent": _UA,
     "Accept": "application/json",
-    "Accept-Language": _ACCEPT_LANG,
-    "Accept-Encoding": "gzip, deflate, br",
     "Referer": f"{BASE_URL}/unidades/",
     "Origin": BASE_URL,
-    "Connection": "keep-alive",
-    "Sec-Fetch-Dest": "empty",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "same-origin",
-    "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Windows"',
     "x-nextjs-data": "1",
 }
 
-HEADERS_HTML = {
-    "User-Agent": _UA,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": _ACCEPT_LANG,
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "sec-ch-ua": '"Chromium";v="131", "Not_A Brand";v="24"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Windows"',
-}
+# A homepage HTML não precisa de headers extras: o impersonate já envia
+# Accept de documento, Sec-Fetch-* de navegação etc.
+HEADERS_HTML: dict[str, str] = {}
 
 
 # ──────────────────────────────────────────────
@@ -195,7 +176,7 @@ def fetch_unit_list(
                 resp = session.get(url, headers=HEADERS, timeout=30)
                 resp.raise_for_status()
                 break
-            except requests.RequestException as exc:
+            except requests.RequestsError as exc:
                 if attempt < 2:
                     log.warning("    Tentativa %d/3 falhou: %s. Aguardando 10s…", attempt + 1, exc)
                     time.sleep(10)
@@ -447,7 +428,9 @@ def main() -> None:
     log.info("Saída: %s", os.path.abspath(OUTPUT_FILE))
     log.info("=" * 60)
 
-    session = requests.Session()
+    # impersonate="chrome" replica o fingerprint TLS+HTTP/2 do Chrome para
+    # passar pelo Akamai Bot Manager do TJRN (sem isso → HTTP 403 Access Denied).
+    session = requests.Session(impersonate="chrome")
 
     # Passo 1 – buildId
     try:
