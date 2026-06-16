@@ -41,6 +41,7 @@ SCRAPERS: dict[str, ScraperInfo] = {
         ScraperInfo("tjro", "TJ Rondônia",            "RO", "PJe",   "tjro_scraper.py",  "tjro_guia_judiciario.xlsx", requer_browser=True),
         ScraperInfo("tjmt", "TJ Mato Grosso",         "MT", "PJe",   "tjmt_scraper.py",  "tjmt_guia_judiciario.xlsx", requer_browser=True),
         ScraperInfo("tjsc", "TJ Santa Catarina",      "SC", "eproc", "tjsc_scraper.py",  "tjsc_guia_judiciario.xlsx", requer_browser=True, manual=True),
+        ScraperInfo("tjgo", "TJ Goiás",              "GO", "Projudi", "tjgo_scraper.py",  "tjgo_guia_judiciario.xlsx"),
     ]
 }
 
