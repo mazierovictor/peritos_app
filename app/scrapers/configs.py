@@ -47,6 +47,10 @@ SCHEMAS: dict[str, ConfigSchema] = {
                           "Cada termo é enviado como busca no portal."),
     "tjmt":  ConfigSchema("Núcleos / palavras-chave",
                           "Termos usados para filtrar núcleos no site do TJMT."),
+    "tjgo":  ConfigSchema("Tipos de órgão aceitos",
+                          "Só entram na base os órgãos cujo nome contém algum destes termos "
+                          "(além de qualquer vara/juizado). Criminal/penal e infância/juventude "
+                          "puros são sempre descartados."),
     # Sem configuração editável (TJRJ/TJRN têm códigos numéricos junto;
     # demais não têm filtro de palavras):
     "tjrj":  ConfigSchema(),
@@ -84,6 +88,10 @@ DEFAULTS: dict[str, list[str]] = {
         "vara unica", "secretaria",
     ],
     "tjmt": [],
+    "tjgo": [
+        "vara", "juizado", "jurisdicional", "cejusc", "turma recursal",
+        "forum", "contadoria", "tribunal do juri", "auditoria militar",
+    ],
     "tjro":  [],
     "tjdft": [],
     "tjal":  [],
