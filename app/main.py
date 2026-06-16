@@ -465,21 +465,10 @@ def contatos_lista(
     })
 
 
-@app.post("/contatos/{cid}/toggle")
-def contatos_toggle(cid: int, user: dict = Depends(requer_login)):
-    with get_conn() as conn:
-        conn.execute("UPDATE contatos SET invalido = 1 - invalido WHERE id = ?", (cid,))
-    return RedirectResponse(url="/contatos", status_code=303)
-
-
-@app.post("/contatos/{cid}/excluir")
-def contatos_excluir(cid: int, user: dict = Depends(requer_login)):
-    with get_conn() as conn:
-        conn.execute("DELETE FROM contatos WHERE id = ?", (cid,))
-    return RedirectResponse(url="/contatos", status_code=303)
-
-
 # ─── Ações em lote ─────────────────────────────────────────────────────
+# IMPORTANTE: estas rotas literais (/contatos/lote/...) devem vir ANTES das
+# rotas com parâmetro (/{cid}/...) para que o FastAPI não tente parsear "lote"
+# como inteiro.
 
 from fastapi import Body  # noqa: E402
 
@@ -552,6 +541,20 @@ async def contatos_lote_filtro_validar(request: Request, user: dict = Depends(re
     form = await request.form()
     _aplicar_lote_filtro(dict(form), "UPDATE contatos SET invalido = 0 WHERE {where}")
     return _redirect_back(dict(form))
+
+
+@app.post("/contatos/{cid}/toggle")
+def contatos_toggle(cid: int, user: dict = Depends(requer_login)):
+    with get_conn() as conn:
+        conn.execute("UPDATE contatos SET invalido = 1 - invalido WHERE id = ?", (cid,))
+    return RedirectResponse(url="/contatos", status_code=303)
+
+
+@app.post("/contatos/{cid}/excluir")
+def contatos_excluir(cid: int, user: dict = Depends(requer_login)):
+    with get_conn() as conn:
+        conn.execute("DELETE FROM contatos WHERE id = ?", (cid,))
+    return RedirectResponse(url="/contatos", status_code=303)
 
 
 # ─── Perfis de remetente ───────────────────────────────────────────────

@@ -42,6 +42,29 @@ def test_extract_rows_predio_ausente_vira_cidade_vazia():
     assert rows == [{"cidade": "", "orgao": "Vara Única", "email": "vu@tjgo.jus.br"}]
 
 
+def test_extract_rows_split_email_barra():
+    """Quando a API retorna dois e-mails separados por '/', gera uma linha por e-mail."""
+    mod = _load()
+    rows = mod.extract_rows([
+        _loc("Vara Cível de Anápolis", "vara1@tjgo.jus.br/vara2@tjgo.jus.br", "Anápolis"),
+    ])
+    assert rows == [
+        {"cidade": "Anápolis", "orgao": "Vara Cível de Anápolis", "email": "vara1@tjgo.jus.br"},
+        {"cidade": "Anápolis", "orgao": "Vara Cível de Anápolis", "email": "vara2@tjgo.jus.br"},
+    ]
+
+
+def test_extract_rows_lowercase_email():
+    """E-mails com letras maiúsculas são normalizados para minúsculas."""
+    mod = _load()
+    rows = mod.extract_rows([
+        _loc("Vara da Fazenda", "VaraFazenda@TJGO.JUS.BR", "Goiânia"),
+    ])
+    assert rows == [
+        {"cidade": "Goiânia", "orgao": "Vara da Fazenda", "email": "varafazenda@tjgo.jus.br"},
+    ]
+
+
 class _FakeResp:
     def __init__(self, payload, fail=False):
         self._payload = payload

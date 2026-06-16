@@ -120,18 +120,21 @@ def is_organ_allowed(orgao_name: str) -> bool:
 # ──────────────────────────────────────────────
 def extract_rows(localidades: list[dict]) -> list[dict]:
     """Filtra as lotações pela política e mapeia para {cidade, orgao, email}.
-    Uma linha por órgão que passa no filtro (e-mails repetidos são preservados)."""
+    Quando a API retorna dois e-mails separados por '/' cria uma linha por e-mail.
+    Todos os e-mails são normalizados para minúsculas."""
     rows: list[dict] = []
     for loc in localidades:
-        email = (loc.get("email") or "").strip()
-        if not email or "@" not in email:
+        raw_email = (loc.get("email") or "").strip()
+        if not raw_email:
             continue
         nome = (loc.get("nome") or "").strip()
         if not nome or not is_organ_allowed(nome):
             continue
         predio = loc.get("predio") or {}
         cidade = (predio.get("cidade") or "").strip()
-        rows.append({"cidade": cidade, "orgao": nome, "email": email})
+        emails = [e.strip().lower() for e in raw_email.split("/") if e.strip() and "@" in e.strip()]
+        for email in emails:
+            rows.append({"cidade": cidade, "orgao": nome, "email": email})
     return rows
 
 
