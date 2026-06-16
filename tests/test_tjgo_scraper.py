@@ -65,6 +65,17 @@ def test_extract_rows_lowercase_email():
     ]
 
 
+def test_extract_rows_texto_extra_apos_email():
+    """Texto extra como ' (gabinete)' após o endereço é ignorado; só o e-mail é salvo."""
+    mod = _load()
+    rows = mod.extract_rows([
+        _loc("Vara de Família", "gab4familia@tjgo.jus.br (gabinete)", "Goiânia"),
+    ])
+    assert rows == [
+        {"cidade": "Goiânia", "orgao": "Vara de Família", "email": "gab4familia@tjgo.jus.br"},
+    ]
+
+
 class _FakeResp:
     def __init__(self, payload, fail=False):
         self._payload = payload

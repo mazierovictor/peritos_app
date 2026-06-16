@@ -11,6 +11,7 @@ Dependências:
 """
 from __future__ import annotations
 
+import re
 import time
 import unicodedata
 import logging
@@ -118,10 +119,13 @@ def is_organ_allowed(orgao_name: str) -> bool:
 # ──────────────────────────────────────────────
 # Extração das linhas a partir das lotações da API
 # ──────────────────────────────────────────────
+_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
+
+
 def extract_rows(localidades: list[dict]) -> list[dict]:
     """Filtra as lotações pela política e mapeia para {cidade, orgao, email}.
-    Quando a API retorna dois e-mails separados por '/' cria uma linha por e-mail.
-    Todos os e-mails são normalizados para minúsculas."""
+    Extrai e-mails via regex para ignorar texto extra (ex: 'email@tj (gabinete)')
+    e suporta múltiplos e-mails separados por '/'. Todos em minúsculas."""
     rows: list[dict] = []
     for loc in localidades:
         raw_email = (loc.get("email") or "").strip()
@@ -132,7 +136,7 @@ def extract_rows(localidades: list[dict]) -> list[dict]:
             continue
         predio = loc.get("predio") or {}
         cidade = (predio.get("cidade") or "").strip()
-        emails = [e.strip().lower() for e in raw_email.split("/") if e.strip() and "@" in e.strip()]
+        emails = [m.group().lower() for m in _EMAIL_RE.finditer(raw_email)]
         for email in emails:
             rows.append({"cidade": cidade, "orgao": nome, "email": email})
     return rows
