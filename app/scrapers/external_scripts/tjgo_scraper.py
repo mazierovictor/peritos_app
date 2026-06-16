@@ -133,3 +133,44 @@ def extract_rows(localidades: list[dict]) -> list[dict]:
         cidade = (predio.get("cidade") or "").strip()
         rows.append({"cidade": cidade, "orgao": nome, "email": email})
     return rows
+
+
+# ──────────────────────────────────────────────
+# Fetch paginado da API pública (com retry/backoff)
+# ──────────────────────────────────────────────
+def fetch_all_localidades(session: requests.Session) -> list[dict]:
+    """Pagina por /agenda/publico/localidades até hasNext=False. Retorna a lista
+    bruta de lotações. Levanta RuntimeError se uma página falhar após MAX_RETRIES."""
+    todos: list[dict] = []
+    page = 0
+    while True:
+        params = {"page": page, "size": PAGE_SIZE}
+        payload = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                resp = session.get(API_URL, params=params, headers=HEADERS, timeout=60)
+                resp.raise_for_status()
+                payload = resp.json()
+                break
+            except (requests.RequestException, ValueError) as exc:
+                if attempt < MAX_RETRIES - 1:
+                    log.warning("Falha na página %d: %s. Retentando em %ds (%d/%d)...",
+                                page, exc, RETRY_DELAY, attempt + 2, MAX_RETRIES)
+                    time.sleep(RETRY_DELAY)
+                else:
+                    raise RuntimeError(
+                        f"Falha ao buscar a página {page} após {MAX_RETRIES} tentativas: {exc}"
+                    ) from exc
+
+        data = payload.get("data") or []
+        todos.extend(data)
+        page_info = payload.get("page") or {}
+        log.info("Página %d: %d registros (acumulado: %d/%s)",
+                 page, len(data), len(todos), page_info.get("totalElements", "?"))
+
+        if not page_info.get("hasNext"):
+            break
+        page += 1
+        time.sleep(DELAY_BETWEEN_REQUESTS)
+
+    return todos
