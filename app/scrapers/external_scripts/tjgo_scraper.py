@@ -174,3 +174,64 @@ def fetch_all_localidades(session: requests.Session) -> list[dict]:
         time.sleep(DELAY_BETWEEN_REQUESTS)
 
     return todos
+
+
+# ──────────────────────────────────────────────
+# Geração da planilha Excel
+# ──────────────────────────────────────────────
+def write_excel(rows: list[dict], filename: str) -> None:
+    """Gera a planilha do zero com as colunas Cidade | Órgão | E-mail."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Guia Judiciário TJGO"
+
+    header_font = Font(name="Calibri", bold=True, color="FFFFFF", size=12)
+    header_fill = PatternFill("solid", fgColor="003366")
+    header_align = Alignment(horizontal="center", vertical="center")
+
+    headers = ["Cidade", "Órgão", "E-mail"]
+    column_widths = [30, 65, 40]
+    for col_idx, (header_text, width) in enumerate(zip(headers, column_widths), start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header_text)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        ws.column_dimensions[cell.column_letter].width = width
+
+    ws.row_dimensions[1].height = 20
+    ws.freeze_panes = "A2"
+
+    alt_fill = PatternFill("solid", fgColor="E8F0FE")
+    plain_fill = PatternFill("solid", fgColor="FFFFFF")
+
+    for i, record in enumerate(rows, start=2):
+        fill = alt_fill if i % 2 == 0 else plain_fill
+        for col_idx, key in enumerate(["cidade", "orgao", "email"], start=1):
+            cell = ws.cell(row=i, column=col_idx, value=record[key])
+            cell.fill = fill
+            cell.alignment = Alignment(vertical="center")
+
+    ws.auto_filter.ref = f"A1:C{max(2, ws.max_row)}"
+    wb.save(filename)
+
+
+# ──────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────
+def main() -> None:
+    session = requests.Session()
+    session.headers.update(HEADERS)
+
+    log.info("Buscando localidades públicas do TJGO...")
+    localidades = fetch_all_localidades(session)
+    log.info("Total bruto: %d lotações.", len(localidades))
+
+    rows = extract_rows(localidades)
+    log.info("Após filtragem: %d órgãos com e-mail.", len(rows))
+
+    write_excel(rows, OUTPUT_FILE)
+    log.info("Planilha '%s' gerada com %d linhas.", OUTPUT_FILE, len(rows))
+
+
+if __name__ == "__main__":
+    main()
