@@ -17,8 +17,11 @@ import threading
 import time as time_mod  # IMPORTANTE: alias para não colidir com `from datetime import time`
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from .db import get_conn
+
+_TZ_SP = ZoneInfo("America/Sao_Paulo")
 from . import mailer
 from .crypto import decrypt
 
@@ -364,7 +367,7 @@ def loop_campanha(campanha_id: int) -> None:
         try:
             while True:
                 estado = montar_estado_campanha(campanha_id)
-                acao = proxima_acao(estado, datetime.now())
+                acao = proxima_acao(estado, datetime.now(_TZ_SP))
 
                 if acao.tipo is AcaoTipo.SAIR:
                     log.info("[campanha %s] saindo (status=%s)", campanha_id, estado.status)
@@ -375,7 +378,7 @@ def loop_campanha(campanha_id: int) -> None:
                     return
                 if acao.tipo is AcaoTipo.DORMIR_ATE:
                     smtp.fechar()  # libera conexão durante sleep longo
-                    seg = max(1.0, (acao.dormir_ate - datetime.now()).total_seconds())
+                    seg = max(1.0, (acao.dormir_ate - datetime.now(_TZ_SP)).total_seconds())
                     log.debug("[campanha %s] dormindo até %s (%.0fs)",
                               campanha_id, acao.dormir_ate, seg)
                     if not _dormir_cooperativo(seg, campanha_id):
@@ -469,7 +472,7 @@ def _subir_thread(campanha_id: int) -> None:
             return  # já tem thread viva
         _threads_runtime[campanha_id] = RuntimeEstado(
             campanha_id=campanha_id,
-            iniciado_em=datetime.now(),
+            iniciado_em=datetime.now(_TZ_SP),
         )
 
     def _wrapped():
@@ -605,7 +608,7 @@ def enviados_hoje_campanha(campanha_id: int) -> int:
         row = conn.execute(
             "SELECT COUNT(*) c FROM envios "
             "WHERE campanha_id = ? AND status = 'ok' "
-            "AND date(enviado_em) = date('now', 'localtime')",
+            "AND date(enviado_em) = date('now', '-3 hours')",
             (campanha_id,),
         ).fetchone()
     return int(row["c"])
@@ -619,7 +622,7 @@ def enviados_hoje_perfil(perfil_id: int) -> int:
             "JOIN contatos c2 ON c2.id = e.contato_id "
             "WHERE e.perfil_remetente_id = ? AND e.status = 'ok' "
             "AND c2.tribunal != '_teste' "
-            "AND date(e.enviado_em) = date('now', 'localtime')",
+            "AND date(e.enviado_em) = date('now', '-3 hours')",
             (perfil_id,),
         ).fetchone()
     return int(row["c"])

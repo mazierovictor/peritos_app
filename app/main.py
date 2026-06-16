@@ -249,7 +249,7 @@ def painel(request: Request, user: dict = Depends(requer_login)):
             "SELECT COUNT(*) c FROM envios e "
             "JOIN contatos c ON c.id = e.contato_id "
             "WHERE e.status = 'ok' AND c.tribunal != '_teste' "
-            "AND date(e.enviado_em) = date('now', 'localtime')"
+            "AND date(e.enviado_em) = date('now', '-3 hours')"
         ).fetchone()["c"]
         ultima = conn.execute(
             "SELECT tribunal, finalizado_em, status FROM scraper_runs ORDER BY id DESC LIMIT 1"
@@ -901,7 +901,7 @@ def _ctx_detalhe(user: dict, campanha_id: int) -> dict:
         progresso_pct = (c["enviados_total"] * 100 // c["total_alvo"]) if c["total_alvo"] else 0
 
         rows_hist = conn.execute(
-            "SELECT date(enviado_em, 'localtime') AS data, "
+            "SELECT date(enviado_em, '-3 hours') AS data, "
             "  SUM(status='ok') AS enviados, "
             "  SUM(status='erro') AS erros, "
             "  SUM(status IN ('bounce','bounce_soft')) AS bounces "
@@ -915,14 +915,14 @@ def _ctx_detalhe(user: dict, campanha_id: int) -> dict:
             ab = conn.execute(
                 "SELECT COUNT(*) c FROM envios e "
                 "JOIN aberturas a ON a.envio_id = e.id "
-                "WHERE e.campanha_id = ? AND date(e.enviado_em,'localtime')=?",
+                "WHERE e.campanha_id = ? AND date(e.enviado_em,'-3 hours')=?",
                 (campanha_id, row["data"]),
             ).fetchone()
             row["aberturas"] = ab["c"]
             historico_por_dia.append(row)
 
         rows_ult = conn.execute(
-            "SELECT strftime('%H:%M', e.enviado_em, 'localtime') AS hora, "
+            "SELECT strftime('%H:%M', e.enviado_em, '-3 hours') AS hora, "
             "  c2.email, e.status FROM envios e "
             "JOIN contatos c2 ON c2.id = e.contato_id "
             "WHERE e.campanha_id = ? ORDER BY e.id DESC LIMIT 10",

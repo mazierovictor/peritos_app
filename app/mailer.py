@@ -63,7 +63,7 @@ def _enviados_hoje(perfil_id: int) -> int:
             "JOIN contatos c ON c.id = e.contato_id "
             "WHERE e.perfil_remetente_id = ? AND e.status = 'ok' "
             "AND c.tribunal != '_teste' "
-            "AND date(e.enviado_em) = date('now', 'localtime')",
+            "AND date(e.enviado_em) = date('now', '-3 hours')",
             (perfil_id,),
         ).fetchone()
     return row["c"]
