@@ -113,3 +113,23 @@ def is_organ_allowed(orgao_name: str) -> bool:
     if "vara" in norm_name or "juizado" in norm_name or "jurisdicional" in norm_name:
         return True
     return any(keyword in norm_name for keyword in ALLOWED_ORGANS)
+
+
+# ──────────────────────────────────────────────
+# Extração das linhas a partir das lotações da API
+# ──────────────────────────────────────────────
+def extract_rows(localidades: list[dict]) -> list[dict]:
+    """Filtra as lotações pela política e mapeia para {cidade, orgao, email}.
+    Uma linha por órgão que passa no filtro (e-mails repetidos são preservados)."""
+    rows: list[dict] = []
+    for loc in localidades:
+        email = (loc.get("email") or "").strip()
+        if not email or "@" not in email:
+            continue
+        nome = (loc.get("nome") or "").strip()
+        if not nome or not is_organ_allowed(nome):
+            continue
+        predio = loc.get("predio") or {}
+        cidade = (predio.get("cidade") or "").strip()
+        rows.append({"cidade": cidade, "orgao": nome, "email": email})
+    return rows
