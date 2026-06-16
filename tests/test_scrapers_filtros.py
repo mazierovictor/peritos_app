@@ -60,6 +60,7 @@ PREDICADO = {
     "tjpa":  "is_valid_organ",
     "tjdft": "is_valid_organ",
     "tjal":  "is_valid_organ",
+    "tjgo":  "is_organ_allowed",
 }
 
 
